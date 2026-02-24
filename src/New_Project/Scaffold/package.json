@@ -1,0 +1,30 @@
+{
+	"name": "scaffold",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"tauri:dev": "tauri dev",
+		"tauri:build": "cross-env TAURI_BUILD=1 vite build && tauri build"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-auto": "^7.0.0",
+		"@sveltejs/adapter-static": "^3.0.0",
+		"@sveltejs/kit": "^2.50.2",
+		"@sveltejs/vite-plugin-svelte": "^6.2.4",
+		"@tauri-apps/cli": "^2.10.0",
+		"cross-env": "^7.0.3",
+		"svelte": "^5.51.0",
+		"vite": "^7.3.1"
+	},
+	"dependencies": {
+		"@supabase/ssr": "^0.0.10",
+		"@supabase/supabase-js": "^2.38.0",
+		"chart.js": "^4.5.1",
+		"katex": "^0.16.33"
+	}
+}
