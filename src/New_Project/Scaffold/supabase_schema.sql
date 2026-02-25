@@ -1,325 +1,229 @@
--- Supabase PostgreSQL Migration
--- Net Worth Tracker Database Schema with Row Level Security (RLS)
--- 
--- This creates the complete relational schema for multi-tenant support
--- All tables include RLS policies for tenant isolation
+-- Supabase Schema (RLS enabled) — owner-based tenancy
+-- Each household row is owned by auth.uid(); all child rows reference household_id
 
--- =============================================
--- Enable UUID extension
--- =============================================
+-- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- =============================================
--- 1. HOUSEHOLDS (Tenant root - represents Michael & Brianna's household)
--- =============================================
-CREATE TABLE households (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- 1) HOUSEHOLDS -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS households (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  owner_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
 ALTER TABLE households ENABLE ROW LEVEL SECURITY;
+CREATE POLICY household_owner_rw ON households
+  FOR ALL TO authenticated
+  USING (owner_id = auth.uid())
+  WITH CHECK (owner_id = auth.uid());
 
-CREATE POLICY "Household isolation"
-ON households
-FOR ALL
-USING (
-    -- For now, allow access. In production, check auth.uid is member of household
-    true
+-- Helper: reusable policy condition for household ownership
+CREATE OR REPLACE FUNCTION public.is_household_owner(h_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM households h WHERE h.id = h_id AND h.owner_id = auth.uid()
+  );
+$$;
+
+-- 2) GLOBAL PARAMETERS ------------------------------------------------------
+CREATE TABLE IF NOT EXISTS globals (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  stock_allocation numeric DEFAULT 0.70,
+  bond_allocation numeric DEFAULT 0.20,
+  cash_allocation numeric DEFAULT 0.10,
+  stock_return numeric DEFAULT 0.08,
+  stock_volatility numeric DEFAULT 0.18,
+  bond_return numeric DEFAULT 0.04,
+  bond_volatility numeric DEFAULT 0.05,
+  cash_return numeric DEFAULT 0.035,
+  inflation_rate numeric DEFAULT 0.025,
+  michael_start_salary numeric DEFAULT 81700,
+  brianna_start_salary numeric DEFAULT 35000,
+  michael_salary_growth numeric DEFAULT 0.03,
+  brianna_salary_growth numeric DEFAULT 0.03,
+  michael_401k_rate numeric DEFAULT 0.15,
+  michael_401k_match numeric DEFAULT 0.06,
+  brianna_401k_rate numeric DEFAULT 0.08,
+  brianna_401k_match numeric DEFAULT 0.03,
+  michael_roth_yearly_contrib numeric DEFAULT 7000,
+  brianna_roth_yearly_contrib numeric DEFAULT 0,
+  capital_gains_tax_rate numeric DEFAULT 0.15,
+  early_withdrawal_penalty numeric DEFAULT 0.10,
+  state varchar(2) DEFAULT 'FL',
+  michael_social_security_age int DEFAULT 62,
+  brianna_social_security_age int DEFAULT 62,
+  michael_years_worked int DEFAULT 24,
+  brianna_years_worked int DEFAULT 24,
+  michael_retirement_age int DEFAULT 45,
+  brianna_retirement_age int DEFAULT 45,
+  life_expectancy int DEFAULT 100,
+  withdrawal_method varchar(50) DEFAULT 'portfolioPercent',
+  portfolio_percent_rate numeric DEFAULT 0.04,
+  constant_dollar_amount numeric DEFAULT 80000,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
--- =============================================
--- 2. GLOBALS (Portfolio, tax, retirement parameters)
--- =============================================
-CREATE TABLE globals (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    
-    -- Portfolio Allocation
-    stock_allocation NUMERIC DEFAULT 0.70,
-    bond_allocation NUMERIC DEFAULT 0.20,
-    cash_allocation NUMERIC DEFAULT 0.10,
-    
-    -- Asset Class Returns & Volatility
-    stock_return NUMERIC DEFAULT 0.08,
-    stock_volatility NUMERIC DEFAULT 0.18,
-    bond_return NUMERIC DEFAULT 0.04,
-    bond_volatility NUMERIC DEFAULT 0.05,
-    cash_return NUMERIC DEFAULT 0.035,
-    inflation_rate NUMERIC DEFAULT 0.025,
-    
-    -- Salaries & Growth
-    michael_start_salary NUMERIC DEFAULT 81700,
-    brianna_start_salary NUMERIC DEFAULT 35000,
-    michael_salary_growth NUMERIC DEFAULT 0.03,
-    brianna_salary_growth NUMERIC DEFAULT 0.03,
-    
-    -- Retirement Contributions (Individual)
-    michael_401k_rate NUMERIC DEFAULT 0.15,
-    michael_401k_match NUMERIC DEFAULT 0.06,
-    brianna_401k_rate NUMERIC DEFAULT 0.08,
-    brianna_401k_match NUMERIC DEFAULT 0.03,
-    michael_roth_yearly_contrib NUMERIC DEFAULT 7000,
-    brianna_roth_yearly_contrib NUMERIC DEFAULT 0,
-    
-    -- Tax & Penalties
-    capital_gains_tax_rate NUMERIC DEFAULT 0.15,
-    early_withdrawal_penalty NUMERIC DEFAULT 0.10,
-    state VARCHAR(2) DEFAULT 'FL',
-    
-    -- Social Security
-    michael_social_security_age INT DEFAULT 62,
-    brianna_social_security_age INT DEFAULT 62,
-    michael_years_worked INT DEFAULT 24,
-    brianna_years_worked INT DEFAULT 24,
-    
-    -- Retirement Parameters
-    michael_retirement_age INT DEFAULT 45,
-    brianna_retirement_age INT DEFAULT 45,
-    life_expectancy INT DEFAULT 100,
-    withdrawal_method VARCHAR(50) DEFAULT 'portfolioPercent',
-    portfolio_percent_rate NUMERIC DEFAULT 0.04,
-    constant_dollar_amount NUMERIC DEFAULT 80000,
-    
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
+CREATE INDEX IF NOT EXISTS globals_household_idx ON globals(household_id);
 ALTER TABLE globals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY globals_owner_rw ON globals
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household globals isolation"
-ON globals
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX globals_household_id ON globals(household_id);
-
--- =============================================
--- 3. ACCOUNT_BALANCES (Starting balances for each person, each account type)
--- =============================================
-CREATE TABLE account_balances (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    owner_name VARCHAR(50) NOT NULL, -- 'Michael' or 'Brianna'
-    account_type VARCHAR(50) NOT NULL, -- '401k', 'Roth IRA', 'Brokerage', 'Savings'
-    starting_balance NUMERIC NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    UNIQUE(household_id, owner_name, account_type)
+-- 3) ACCOUNT BALANCES -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS account_balances (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  owner_name varchar(50) NOT NULL,
+  account_type varchar(50) NOT NULL,
+  starting_balance numeric NOT NULL DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(household_id, owner_name, account_type)
 );
 
+CREATE INDEX IF NOT EXISTS account_balances_household_idx ON account_balances(household_id);
 ALTER TABLE account_balances ENABLE ROW LEVEL SECURITY;
+CREATE POLICY account_balances_owner_rw ON account_balances
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household account balance isolation"
-ON account_balances
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX account_balances_household_id ON account_balances(household_id);
-
--- =============================================
--- 4. MONTHLY_EXPENSES (Expense categories for each person)
--- =============================================
-CREATE TABLE monthly_expenses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    owner_name VARCHAR(50) NOT NULL, -- 'Michael' or 'Brianna'
-    category VARCHAR(100) NOT NULL, -- 'insurance', 'gas', 'food', 'rent', etc.
-    amount NUMERIC NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    UNIQUE(household_id, owner_name, category)
+-- 4) MONTHLY EXPENSES -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS monthly_expenses (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  owner_name varchar(50) NOT NULL,
+  category varchar(100) NOT NULL,
+  amount numeric NOT NULL DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(household_id, owner_name, category)
 );
 
+CREATE INDEX IF NOT EXISTS monthly_expenses_household_idx ON monthly_expenses(household_id);
 ALTER TABLE monthly_expenses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY monthly_expenses_owner_rw ON monthly_expenses
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household expense isolation"
-ON monthly_expenses
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX monthly_expenses_household_id ON monthly_expenses(household_id);
-
--- =============================================
--- 5. RETIREMENT_EXPENSES (Annual retirement expense amount)
--- =============================================
-CREATE TABLE retirement_expenses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE UNIQUE,
-    yearly_amount NUMERIC NOT NULL DEFAULT 80000,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- 5) RETIREMENT EXPENSES ----------------------------------------------------
+CREATE TABLE IF NOT EXISTS retirement_expenses (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE UNIQUE,
+  yearly_amount numeric NOT NULL DEFAULT 80000,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
 ALTER TABLE retirement_expenses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY retirement_expenses_owner_rw ON retirement_expenses
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household retirement expense isolation"
-ON retirement_expenses
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
--- =============================================
--- 6. SPECIAL_EVENTS (One-time expenses or windfalls)
--- =============================================
-CREATE TABLE special_events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    event_year INT NOT NULL,
-    event_type VARCHAR(100) NOT NULL, -- 'house_purchase', 'inheritance', 'major_repair', etc.
-    description TEXT,
-    amount NUMERIC NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- 6) SPECIAL EVENTS ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS special_events (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  event_year int NOT NULL,
+  event_type varchar(100) NOT NULL,
+  description text,
+  amount numeric NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS special_events_household_idx ON special_events(household_id);
+CREATE INDEX IF NOT EXISTS special_events_year_idx ON special_events(event_year);
 ALTER TABLE special_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY special_events_owner_rw ON special_events
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household special event isolation"
-ON special_events
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX special_events_household_id ON special_events(household_id);
-CREATE INDEX special_events_event_year ON special_events(event_year);
-
--- =============================================
--- 7. YEAR_OVERRIDES (Per-year adjustments to expenses and account balances)
--- =============================================
-CREATE TABLE year_overrides (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    override_year INT NOT NULL,
-    michael_expenses NUMERIC,
-    brianna_expenses NUMERIC,
-    michael_401k NUMERIC,
-    brianna_401k NUMERIC,
-    michael_roth NUMERIC,
-    brianna_roth NUMERIC,
-    michael_brokerage NUMERIC,
-    brianna_brokerage NUMERIC,
-    michael_savings NUMERIC,
-    brianna_savings NUMERIC,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    UNIQUE(household_id, override_year)
+-- 7) YEAR OVERRIDES ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS year_overrides (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  override_year int NOT NULL,
+  michael_expenses numeric,
+  brianna_expenses numeric,
+  michael_401k numeric,
+  brianna_401k numeric,
+  michael_roth numeric,
+  brianna_roth numeric,
+  michael_brokerage numeric,
+  brianna_brokerage numeric,
+  michael_savings numeric,
+  brianna_savings numeric,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(household_id, override_year)
 );
 
+CREATE INDEX IF NOT EXISTS year_overrides_household_idx ON year_overrides(household_id);
 ALTER TABLE year_overrides ENABLE ROW LEVEL SECURITY;
+CREATE POLICY year_overrides_owner_rw ON year_overrides
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household override isolation"
-ON year_overrides
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX year_overrides_household_id ON year_overrides(household_id);
-
--- =============================================
--- 8. SALARY_ADJUSTMENTS (Per-year salary overrides)
--- =============================================
-CREATE TABLE salary_adjustments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    adjustment_year INT NOT NULL,
-    michael_salary NUMERIC,
-    brianna_salary NUMERIC,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    UNIQUE(household_id, adjustment_year)
+-- 8) SALARY ADJUSTMENTS -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS salary_adjustments (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  adjustment_year int NOT NULL,
+  michael_salary numeric,
+  brianna_salary numeric,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(household_id, adjustment_year)
 );
 
+CREATE INDEX IF NOT EXISTS salary_adjustments_household_idx ON salary_adjustments(household_id);
 ALTER TABLE salary_adjustments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY salary_adjustments_owner_rw ON salary_adjustments
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));
 
-CREATE POLICY "Household salary adjustment isolation"
-ON salary_adjustments
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX salary_adjustments_household_id ON salary_adjustments(household_id);
-
--- =============================================
--- 9. PROJECTIONS (Cached annual projection data for performance)
--- =============================================
-CREATE TABLE projections (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    scenario VARCHAR(50) NOT NULL, -- 'conservative', 'expected', 'aggressive'
-    projection_year INT NOT NULL,
-    michael_age INT,
-    brianna_age INT,
-    combined_gross NUMERIC,
-    combined_exp NUMERIC,
-    total_401k NUMERIC,
-    total_roth NUMERIC,
-    total_brokerage NUMERIC,
-    total_savings NUMERIC,
-    net_worth NUMERIC,
-    social_security_income NUMERIC,
-    withdrawal_source VARCHAR(255),
-    liquidity_gap NUMERIC,
-    retired BOOLEAN,
-    michael_retired BOOLEAN,
-    brianna_retired BOOLEAN,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    UNIQUE(household_id, scenario, projection_year)
+-- 9) PROJECTIONS (cached simulation outputs) -------------------------------
+CREATE TABLE IF NOT EXISTS projections (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  scenario varchar(32) NOT NULL,
+  projection_year int NOT NULL,
+  michael_age int,
+  brianna_age int,
+  combined_gross numeric,
+  combined_exp numeric,
+  total_401k numeric,
+  total_roth numeric,
+  total_brokerage numeric,
+  total_savings numeric,
+  net_worth numeric,
+  social_security_income numeric,
+  withdrawal_source text,
+  liquidity_gap numeric,
+  retired boolean,
+  michael_retired boolean,
+  brianna_retired boolean,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(household_id, scenario, projection_year)
 );
 
+CREATE INDEX IF NOT EXISTS projections_household_idx ON projections(household_id);
 ALTER TABLE projections ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Household projection isolation"
-ON projections
-FOR ALL
-USING (household_id IN (SELECT id FROM households));
-
-CREATE INDEX projections_household_id ON projections(household_id);
-CREATE INDEX projections_scenario ON projections(scenario);
-
--- =============================================
--- INSERT DEFAULT DATA for initial household (Michael & Brianna)
--- =============================================
-INSERT INTO households (id, name) VALUES (
-    '00000000-0000-0000-0000-000000000001'::UUID,
-    'Michael & Brianna'
-);
-
--- Default globals
-INSERT INTO globals (household_id) VALUES (
-    '00000000-0000-0000-0000-000000000001'::UUID
-);
-
--- Default starting balances
-INSERT INTO account_balances (household_id, owner_name, account_type, starting_balance) VALUES
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', '401k', 29000),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'Roth IRA', 20000),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'Brokerage', 140000),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'Savings', 5000),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', '401k', 7000),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'Roth IRA', 0),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'Brokerage', 0),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'Savings', 2000);
-
--- Default monthly expenses
-INSERT INTO monthly_expenses (household_id, owner_name, category, amount) VALUES
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'insurance', 220),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'gas', 252),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'food', 200),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'dates', 160),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'rent', 600),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Michael', 'vacationFund', 200),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'insurance', 350),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'gas', 252),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'food', 200),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'car', 600),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'rent', 150),
-    ('00000000-0000-0000-0000-000000000001'::UUID, 'Brianna', 'vacationFund', 200);
-
--- Default retirement expenses
-INSERT INTO retirement_expenses (household_id, yearly_amount) VALUES (
-    '00000000-0000-0000-0000-000000000001'::UUID,
-    80000
-);
+CREATE POLICY projections_owner_rw ON projections
+  FOR ALL TO authenticated
+  USING (public.is_household_owner(household_id))
+  WITH CHECK (public.is_household_owner(household_id));

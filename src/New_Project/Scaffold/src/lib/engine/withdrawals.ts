@@ -234,6 +234,9 @@ export interface DrawDownOptions {
   briannaAge: number;
   earlyWithdrawalPenalty: number;
   capitalGainsTaxRate: number;
+  capitalLossCarry?: number;
+  /** Amount already drawn via SEPP 72(t) this year — waive penalty on this slice */
+  seppAmount?: number;
 }
 
 export interface DrawDownResult {
@@ -243,6 +246,7 @@ export interface DrawDownResult {
   amountFunded: number;
   /** Positive value when portfolio was exhausted before meeting the target. */
   liquidityGap: number;
+  remainingLossCarry?: number;
 }
 
 /**
@@ -276,6 +280,7 @@ export const applySequentialWithdrawal = (
   }
 
   // ── 2. Brokerage (capital-gains tax applies) ──────────────────────────────
+  let lossCarry = opts.capitalLossCarry ?? 0;
   for (const key of ['mBrokerageBal', 'bBrokerageBal'] as const) {
     if (needed <= 0) break;
     if (b[key] <= 0) continue;
@@ -283,7 +288,11 @@ export const applySequentialWithdrawal = (
     const cgt = opts.capitalGainsTaxRate;
     const grossNeeded = cgt < 1 ? needed / (1 - cgt) : needed;
     const grossTake = Math.min(b[key], grossNeeded);
-    const netProceeds = grossTake * (1 - cgt);
+    // Apply tax-loss harvesting carryforward against realized gains
+    const taxableGain = Math.max(0, grossTake - lossCarry);
+    const taxDue = taxableGain * cgt;
+    const netProceeds = grossTake - taxDue;
+    lossCarry = Math.max(0, lossCarry - grossTake + taxableGain); // reduce carry by gains used
     b[key] -= grossTake;
     needed -= netProceeds;
     if (!sources.includes('Brokerage')) sources.push('Brokerage');
@@ -294,6 +303,7 @@ export const applySequentialWithdrawal = (
     m401kBal: opts.michaelAge,
     b401kBal: opts.briannaAge,
   };
+  let remainingSeppWaiver = opts.seppAmount ?? 0;
   for (const key of ['m401kBal', 'b401kBal'] as const) {
     if (needed <= 0) break;
     if (b[key] <= 0) continue;
@@ -304,11 +314,15 @@ export const applySequentialWithdrawal = (
       needed -= take;
       if (!sources.includes('401k')) sources.push('401k');
     } else {
-      // Early withdrawal: balance is reduced by take + penalty
-      const penalty = take * opts.earlyWithdrawalPenalty;
+      // Waive penalty on SEPP-covered portion
+      const waived = Math.min(take, remainingSeppWaiver);
+      remainingSeppWaiver -= waived;
+      const penalised = take - waived;
+      const penalty = penalised * opts.earlyWithdrawalPenalty;
       b[key] = Math.max(0, b[key] - take - penalty);
       needed -= take;
-      if (!sources.includes('401k(early)')) sources.push('401k(early)');
+      if (waived > 0 && !sources.includes('401k(SEPP)')) sources.push('401k(SEPP)');
+      if (penalised > 0 && !sources.includes('401k(early)')) sources.push('401k(early)');
     }
   }
 
@@ -335,5 +349,6 @@ export const applySequentialWithdrawal = (
     withdrawalSource: sources.join(' + ') || 'None',
     amountFunded,
     liquidityGap,
+    remainingLossCarry: lossCarry,
   };
 };

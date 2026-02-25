@@ -29,6 +29,10 @@ export interface Globals {
   briannaBrokerageStart: number;
   michaelSavingsStart: number;
   briannaSavingsStart: number;
+  michaelHsaStart?: number;
+  briannaHsaStart?: number;
+  michael529Start?: number;
+  brianna529Start?: number;
 
   // Salaries & Growth
   michaelStartSalary: number;
@@ -43,6 +47,15 @@ export interface Globals {
   brianna401kMatch: number;
   michaelRothYearlyContrib: number;
   briannaRothYearlyContrib: number;
+  michaelHsaYearlyContrib?: number;
+  briannaHsaYearlyContrib?: number;
+  michael529YearlyContrib?: number;
+  brianna529YearlyContrib?: number;
+  healthcareAnnual?: number;
+  educationAnnual?: number;
+  ira415cLimit?: number;
+  michaelStateMachine?: Record<number, 'working' | 'sabbatical' | 'partTime' | 'retired'>;
+  briannaStateMachine?: Record<number, 'working' | 'sabbatical' | 'partTime' | 'retired'>;
 
   // Tax & Penalties
   capitalGainsTaxRate: number;
@@ -64,6 +77,12 @@ export interface Globals {
   portfolioPercentRate: number;
   constantDollarAmount: number;
 
+  // Early Retirement Strategies
+  enableSEPP?: boolean;        // SEPP 72(t) — penalty-free 401k access before 59.5
+  seppRate?: number;           // Safe-harbor interest rate for amortisation (default 0.05)
+  enableRothLadder?: boolean;  // Roth Conversion Ladder — annual 401k→Roth conversions
+  rothLadderAmount?: number;   // Annual conversion amount (0 = auto-optimise to fill low brackets)
+
   // Year-by-year overrides
   yearOverrides: Record<number, YearOverride>;
 }
@@ -82,6 +101,10 @@ export interface YearOverride {
   briannaBrokerage?: number;
   michaelSavings?: number;
   briannaSavings?: number;
+  michaelHsa?: number;
+  briannaHsa?: number;
+  michael529?: number;
+  brianna529?: number;
 }
 
 /**
@@ -165,6 +188,12 @@ export interface ProjectionYear {
   mSavingsBal: number;
   bSavingsBal: number;
   totalSavings: number;
+  mHsaBal?: number;
+  bHsaBal?: number;
+  totalHsa?: number;
+  m529Bal?: number;
+  b529Bal?: number;
+  total529?: number;
 
   // Net Worth
   michaelNetWorth: number;
@@ -173,6 +202,8 @@ export interface ProjectionYear {
 
   // Retirement & Income
   withdrawalSource: string;
+  michaelState?: 'working' | 'sabbatical' | 'partTime' | 'retired';
+  briannaState?: 'working' | 'sabbatical' | 'partTime' | 'retired';
   socialSecurityIncome: number;
   retired: boolean;
   michaelRetired: boolean;
@@ -183,6 +214,11 @@ export interface ProjectionYear {
 
   // Actual withdrawal amount for this year (dynamic — reflects chosen withdrawal strategy)
   actualWithdrawalAmount: number;
+
+  // Early-retirement strategy tracking
+  seppWithdrawal?: number;          // SEPP 72(t) amount drawn this year
+  rothConversion?: number;          // Roth Ladder conversion amount this year
+  rothPipelineTotal?: number;       // Unvested Roth Ladder funds still maturing
 }
 
 /**
@@ -218,4 +254,5 @@ export interface SocialSecurityBenefit {
   annualBenefit: number;
   claimingAge: number;
   fullRetirementAge: number;
+  indexedEarnings?: number[];
 }

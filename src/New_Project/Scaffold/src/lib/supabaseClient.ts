@@ -4,7 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, SupabaseClientOptions } from '@supabase/supabase-js';
 
 // These should be in your .env.local file
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
@@ -16,7 +16,17 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   );
 }
 
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Avoid localStorage persistence (RLS-friendly server rendering)
+const supabaseOptions: SupabaseClientOptions<'public'> = {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: false,
+    detectSessionInUrl: true,
+    storage: undefined
+  }
+};
+
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, supabaseOptions);
 
 // Default household ID (Michael & Brianna)
 export const DEFAULT_HOUSEHOLD_ID = '00000000-0000-0000-0000-000000000001';
@@ -27,6 +37,7 @@ export const DEFAULT_HOUSEHOLD_ID = '00000000-0000-0000-0000-000000000001';
 
 export interface Household {
   id: string;
+  owner_id: string;
   name: string;
   created_at: string;
   updated_at: string;

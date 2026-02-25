@@ -58,6 +58,7 @@
   .table-shell {
     max-height: 640px;
     overflow-y: auto;
+    overflow-x: auto;
     border: 1px solid #334155;
     border-radius: 0.6rem;
     background: rgba(15, 23, 42, 0.6);
@@ -65,6 +66,7 @@
 
   table {
     width: 100%;
+    min-width: 900px;
     border-collapse: collapse;
   }
 
@@ -107,5 +109,19 @@
   .net-worth {
     font-weight: 650;
     color: #67e8f9;
+  }
+
+  @media (max-width: 768px) {
+    .ledger {
+      padding: 1rem;
+    }
+
+    h2 {
+      font-size: 1.05rem;
+    }
+
+    .table-shell {
+      max-height: none;
+    }
   }
 </style>

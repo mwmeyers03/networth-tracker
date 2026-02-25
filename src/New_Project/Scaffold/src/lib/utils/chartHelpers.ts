@@ -9,6 +9,7 @@
  */
 
 import type { SimulationResult } from '../types/simulation';
+import type { ProjectionYear } from '../types/financial';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ export interface ChartDatasetSpec {
   backgroundColor: string;
   borderWidth: number;
   borderDash?: number[];
+  stack?: string;
   fill: boolean | string;
   pointRadius: number;
   tension: number;
@@ -213,10 +215,106 @@ export function buildEnvelopeChartData(
 }
 
 /**
+ * Build stacked area datasets by account bucket (savings, brokerage, 401k, Roth, HSA/529).
+ */
+export function buildStackedAccountChartData(
+  expectedData: ProjectionYear[],
+): EnvelopeChartData {
+  const labels = expectedData.map((d) => String(d.year));
+
+  const datasets: ChartDatasetSpec[] = [
+    {
+      label: 'Savings',
+      data: expectedData.map((d) => d.totalSavings ?? 0),
+      borderColor: 'rgba(94,234,212,0.9)',
+      backgroundColor: 'rgba(94,234,212,0.18)',
+      borderWidth: 1.5,
+      stack: 'balances',
+      fill: true,
+      pointRadius: 0,
+      tension: 0.25,
+      spanGaps: true,
+      order: 2,
+    },
+    {
+      label: 'Brokerage',
+      data: expectedData.map((d) => d.totalBrokerage ?? 0),
+      borderColor: 'rgba(59,130,246,0.85)',
+      backgroundColor: 'rgba(59,130,246,0.18)',
+      borderWidth: 1.5,
+      stack: 'balances',
+      fill: true,
+      pointRadius: 0,
+      tension: 0.25,
+      spanGaps: true,
+      order: 2,
+    },
+    {
+      label: '401k',
+      data: expectedData.map((d) => d.total401k ?? 0),
+      borderColor: 'rgba(250,204,21,0.85)',
+      backgroundColor: 'rgba(250,204,21,0.14)',
+      borderWidth: 1.5,
+      stack: 'balances',
+      fill: true,
+      pointRadius: 0,
+      tension: 0.25,
+      spanGaps: true,
+      order: 2,
+    },
+    {
+      label: 'Roth',
+      data: expectedData.map((d) => d.totalRoth ?? 0),
+      borderColor: 'rgba(236,72,153,0.9)',
+      backgroundColor: 'rgba(236,72,153,0.16)',
+      borderWidth: 1.5,
+      stack: 'balances',
+      fill: true,
+      pointRadius: 0,
+      tension: 0.25,
+      spanGaps: true,
+      order: 2,
+    },
+    {
+      label: 'HSA/529',
+      data: expectedData.map((d) => (d.totalHsa ?? 0) + (d.total529 ?? 0)),
+      borderColor: 'rgba(34,197,94,0.85)',
+      backgroundColor: 'rgba(34,197,94,0.14)',
+      borderWidth: 1.5,
+      stack: 'balances',
+      fill: true,
+      pointRadius: 0,
+      tension: 0.25,
+      spanGaps: true,
+      order: 2,
+    },
+    {
+      label: 'Total Net Worth',
+      data: expectedData.map((d) => d.netWorth ?? 0),
+      borderColor: 'rgba(226,232,240,1)',
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [6, 4],
+      fill: false,
+      pointRadius: 0,
+      tension: 0.25,
+      spanGaps: true,
+      order: 1,
+    },
+  ];
+
+  return { labels, datasets };
+}
+
+/**
  * Build the Chart.js options object for the envelope chart.
  * Uses the dark colour palette of the existing UI.
  */
-export function buildChartOptions(maxNetWorth: number) {
+export function buildChartOptions(
+  maxNetWorth: number,
+  breakdownByYear?: Record<number, ProjectionYear>,
+  stacked: boolean = false,
+) {
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -243,11 +341,57 @@ export function buildChartOptions(maxNetWorth: number) {
               maximumFractionDigits: 0,
             }).format(value)}`;
           },
+          afterBody: (items: any[]) => {
+            if (!breakdownByYear || !items?.length) return '';
+            const year = Number(items[0].label);
+            const row = breakdownByYear[year];
+            if (!row) return '';
+
+            const lines: string[] = [];
+            const parts: Array<[string, number | undefined]> = [
+              ['401k', row.total401k],
+              ['Roth', row.totalRoth],
+              ['Brokerage', row.totalBrokerage],
+              ['Savings', row.totalSavings],
+              ['HSA', row.totalHsa],
+              ['529', row.total529],
+            ];
+
+            parts.forEach(([label, val]) => {
+              if (typeof val === 'number' && !Number.isNaN(val)) {
+                lines.push(`${label}: ${new Intl.NumberFormat('en-US', {
+                  style: 'currency',
+                  currency: 'USD',
+                  maximumFractionDigits: 0,
+                }).format(val)}`);
+              }
+            });
+
+            return lines.length ? lines : '';
+          },
+        },
+      },
+      zoom: {
+        pan: {
+          enabled: true,
+          mode: 'xy',
+          modifierKey: 'shift',
+        },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'xy',
+          drag: { enabled: false },
+        },
+        limits: {
+          x: { min: 'original', max: 'original' },
+          y: { min: 0 },
         },
       },
     },
     scales: {
       x: {
+        stacked,
         ticks: {
           color: '#64748b',
           font: { size: 10 },
@@ -257,6 +401,7 @@ export function buildChartOptions(maxNetWorth: number) {
         grid: { color: 'rgba(51,65,85,0.4)' },
       },
       y: {
+        stacked,
         ticks: {
           color: '#64748b',
           font: { size: 10 },

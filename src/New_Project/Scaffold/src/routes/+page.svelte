@@ -9,15 +9,19 @@
 
 	let activeTab = 'parameters';
 	let retirementYear = null;
+	let sidebarOpen = false;
 
 	$: if ($financialData) {
 		const firstRetired = $financialData.find((d) => d.retired);
 		retirementYear = firstRetired?.year || null;
 	}
-	
+
 	function changeTab(tab) {
 		activeTab = tab;
+		if (tab !== 'dashboard') sidebarOpen = false;
 	}
+
+	const toggleSidebar = () => (sidebarOpen = !sidebarOpen);
 </script>
 
 <svelte:head>
@@ -34,13 +38,23 @@
 			<button class:active={activeTab === 'ledger'} on:click={() => changeTab('ledger')}>Ledger</button>
 			<button class:active={activeTab === 'calculations'} on:click={() => changeTab('calculations')}>Calculations</button>
 		</nav>
+		{#if activeTab === 'dashboard'}
+			<button class="mobile-toggle" on:click={toggleSidebar}>
+				{sidebarOpen ? 'Close' : 'Menu'}
+			</button>
+		{/if}
 	</header>
 
 	{#if activeTab === 'parameters'}
 		<Controls />
 	{:else if activeTab === 'dashboard'}
 		<div class="dashboard-layout">
-			<Sidebar />
+			<div class="sidebar-drawer" class:open={sidebarOpen}>
+				<Sidebar />
+			</div>
+			{#if sidebarOpen}
+				<div class="backdrop" on:click={() => (sidebarOpen = false)}></div>
+			{/if}
 			<div class="dashboard-main">
 				<Dashboard {retirementYear} />
 			</div>
@@ -124,5 +138,69 @@
 		flex: 1;
 		overflow-y: auto;
 		min-width: 0;
+	}
+
+	.sidebar-drawer {
+		display: flex;
+		flex-shrink: 0;
+	}
+
+	.mobile-toggle {
+		display: none;
+		background: rgba(51, 65, 85, 0.4);
+		color: #e2e8f0;
+		border: 1px solid #334155;
+		border-radius: 0.5rem;
+		padding: 0.55rem 0.9rem;
+		cursor: pointer;
+		font-weight: 700;
+	}
+
+	.backdrop {
+		display: none;
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.45);
+		z-index: 8;
+	}
+
+	@media (max-width: 900px) {
+		header {
+			flex-wrap: wrap;
+			gap: 0.75rem;
+		}
+
+		nav {
+			flex-wrap: wrap;
+		}
+
+		.mobile-toggle {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.4rem;
+		}
+
+		.sidebar-drawer {
+			position: fixed;
+			top: 72px;
+			bottom: 0;
+			left: -280px;
+			width: 260px;
+			transition: transform 0.2s ease, left 0.2s ease;
+			z-index: 9;
+		}
+
+		.sidebar-drawer.open {
+			left: 0;
+			box-shadow: 8px 0 24px rgba(0,0,0,0.35);
+		}
+
+		.dashboard-layout {
+			position: relative;
+		}
+
+		.backdrop {
+			display: block;
+		}
 	}
 </style>

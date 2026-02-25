@@ -348,8 +348,14 @@
                 <span class="combined-value">${value.toFixed(0)}</span>
               </div>
             {/each}
-            <div class="total combined">Combined Monthly Total: ${(monthlyMichael + monthlyBrianna).toFixed(0)}/month</div>
-            <div class="total combined">Annual Expenses: ${((monthlyMichael + monthlyBrianna) * 12).toLocaleString()}/year</div>
+            <div class="summary-box">
+              <span class="summary-label">Combined Monthly Total</span>
+              <span class="summary-value">${(monthlyMichael + monthlyBrianna).toFixed(0)}/month</span>
+            </div>
+            <div class="summary-box">
+              <span class="summary-label">Annual Expenses</span>
+              <span class="summary-value">${((monthlyMichael + monthlyBrianna) * 12).toLocaleString()}/year</span>
+            </div>
           {/if}
         </div>
       {/if}
@@ -388,6 +394,28 @@
             <label>Annual Withdrawal Amount ($)
               <input value={$globals.constantDollarAmount} on:input={(e) => globals.update(g => ({ ...g, constantDollarAmount: parseNum(e.currentTarget.value) }))} />
             </label>
+          {/if}
+
+          <h4>Early-Retirement Strategies</h4>
+          <label class="toggle-row">
+            <span>SEPP / 72(t) Distributions</span>
+            <input type="checkbox" checked={$globals.enableSEPP} on:change={(e) => globals.update(g => ({ ...g, enableSEPP: e.currentTarget.checked }))} />
+          </label>
+          {#if $globals.enableSEPP}
+            <label>Safe-Harbor Rate (%)
+              <input value={($globals.seppRate * 100).toFixed(1)} on:input={(e) => globals.update(g => ({ ...g, seppRate: parseNum(e.currentTarget.value) / 100 }))} />
+            </label>
+            <div class="strategy-note">Penalty-free 401k withdrawals between retirement &amp; age 59.5 using IRS amortisation method.</div>
+          {/if}
+          <label class="toggle-row">
+            <span>Roth Conversion Ladder</span>
+            <input type="checkbox" checked={$globals.enableRothLadder} on:change={(e) => globals.update(g => ({ ...g, enableRothLadder: e.currentTarget.checked }))} />
+          </label>
+          {#if $globals.enableRothLadder}
+            <label>Annual Conversion ($, 0 = auto)
+              <input value={$globals.rothLadderAmount} on:input={(e) => globals.update(g => ({ ...g, rothLadderAmount: parseNum(e.currentTarget.value) }))} />
+            </label>
+            <div class="strategy-note">Converts 401k funds to Roth each year. Funds become penalty-free after a 5-year seasoning period.</div>
           {/if}
         </div>
       {/if}
@@ -593,7 +621,9 @@
   .controls-shell {
     padding: 0.8rem 1rem;
     border-bottom: 1px solid #1f2937;
-    background: rgba(15, 23, 42, 0.5);
+    background: radial-gradient(circle at 20% 20%, rgba(30, 41, 59, 0.35), transparent 45%),
+                radial-gradient(circle at 80% 0%, rgba(15, 118, 110, 0.12), transparent 40%),
+                #0b1220;
   }
 
   .controls-header {
@@ -631,7 +661,7 @@
 
   .controls-grid {
     display: grid;
-    gap: 0.6rem;
+    gap: 0.7rem;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
 
@@ -653,9 +683,10 @@
   }
 
   .control-card {
-    border: 1px solid #334155;
-    border-radius: 0.6rem;
-    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid #1f2937;
+    border-radius: 0.75rem;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(11, 17, 31, 0.95));
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     overflow: hidden;
   }
 
@@ -663,13 +694,14 @@
     width: 100%;
     border: 0;
     color: #e2e8f0;
-    background: linear-gradient(180deg, #1f2937, #111827);
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
     display: flex;
     justify-content: space-between;
-    padding: 0.6rem 0.75rem;
+    padding: 0.65rem 0.85rem;
     font-weight: 650;
     cursor: pointer;
     font-size: 0.85rem;
+    letter-spacing: 0.01em;
   }
 
   .section-body {
@@ -689,13 +721,20 @@
 
   input {
     width: 100%;
-    border: 1px solid #475569;
-    border-radius: 0.4rem;
-    padding: 0.4rem;
-    background: #0f172a;
+    border: 1px solid #24303f;
+    border-radius: 0.45rem;
+    padding: 0.5rem;
+    background: #0c1627;
     color: #f8fafc;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  input:focus {
+    outline: none;
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
   }
 
   h4 {
@@ -733,12 +772,35 @@
     margin-top: 0.15rem;
   }
 
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toggle-row input[type="checkbox"] {
+    width: auto;
+    accent-color: #10b981;
+    transform: scale(1.15);
+    cursor: pointer;
+  }
+
+  .strategy-note {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    font-style: italic;
+    line-height: 1.35;
+    margin: -0.15rem 0 0.3rem;
+  }
+
   .add-row button.purple {
     background: #7c3aed;
   }
 
   .total {
-    color: #67e8f9;
+    color: #e2e8f0;
     font-weight: 650;
     font-size: 0.85rem;
     margin-top: 0.2rem;
@@ -752,11 +814,38 @@
   }
 
   .combined-value {
-    color: #34d399;
-    font-weight: 600;
-    font-size: 0.8rem;
+    color: #e2e8f0;
+    font-weight: 650;
+    font-size: 0.82rem;
     display: block;
     margin-top: 0.1rem;
+  }
+
+  .summary-box {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid #24303f;
+    background: #0c1627;
+    border-radius: 0.45rem;
+    padding: 0.55rem 0.65rem;
+    color: #e2e8f0;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .summary-label {
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    font-weight: 650;
+  }
+
+  .summary-value {
+    font-size: 0.9rem;
+    font-weight: 650;
+    color: #e2e8f0;
   }
 
   input[type="number"] {
@@ -771,10 +860,10 @@
 
   select {
     width: 100%;
-    border: 1px solid #475569;
+    border: 1px solid #24303f;
     border-radius: 0.45rem;
     padding: 0.5rem;
-    background: #0f172a;
+    background: #0c1627;
     color: #f8fafc;
     font-size: 0.88rem;
     box-sizing: border-box;
@@ -880,10 +969,4 @@
     background: rgba(51, 65, 85, 0.5);
   }
 
-  .total.combined {
-    background: rgba(34, 197, 94, 0.1);
-    border-left: 3px solid #22c55e;
-    font-weight: 600;
-    color: #86efac;
-  }
 </style>

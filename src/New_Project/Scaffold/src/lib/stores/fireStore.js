@@ -10,7 +10,6 @@ import {
 import { getProjectionManager } from '../engine/projectionWorkerManager';
 import { createSupabaseStore, createSupabaseArrayStore } from './supabaseStore';
 import { DEFAULT_HOUSEHOLD_ID } from '../supabaseClient';
-import { debounce } from '../utils/debounce';
 
 // Use fallback localStore for initialization
 const localStore = (key, initialValue) => {
@@ -38,7 +37,7 @@ const localStore = (key, initialValue) => {
 	return store;
 };
 
-const START_YEAR = 2024;
+const START_YEAR = 2025;
 const END_YEAR = 2065;
 const MICHAEL_START_AGE = 22;
 const BRIANNA_START_AGE = 21;
@@ -64,6 +63,10 @@ export const globals = localStore('fire-globals', {
   briannaBrokerageStart: 0,
   michaelSavingsStart: 5000,
   briannaSavingsStart: 2000,
+	michaelHsaStart: 0,
+	briannaHsaStart: 0,
+	michael529Start: 0,
+	brianna529Start: 0,
   // Salaries & Growth
 	michaelStartSalary: 81700,
 	briannaStartSalary: 35000,
@@ -76,6 +79,15 @@ export const globals = localStore('fire-globals', {
 	brianna401kMatch: 0.03,
   michaelRothYearlyContrib: 7000,
   briannaRothYearlyContrib: 0,
+	michaelHsaYearlyContrib: 0,
+	briannaHsaYearlyContrib: 0,
+	michael529YearlyContrib: 0,
+	brianna529YearlyContrib: 0,
+	healthcareAnnual: 0,
+	educationAnnual: 0,
+	ira415cLimit: 69000,
+	michaelStateMachine: {},
+	briannaStateMachine: {},
 
   // Tax & Penalties
   capitalGainsTaxRate: 0.15,
@@ -106,6 +118,11 @@ export const globals = localStore('fire-globals', {
   withdrawalMethod: 'portfolioPercent', // 'portfolioPercent', 'constantDollar', 'oneOverN', 'endowment', 'maximize'
   portfolioPercentRate: 0.04,
   constantDollarAmount: 80000,
+  // Early Retirement Strategies
+  enableSEPP: false,
+  seppRate: 0.05,
+  enableRothLadder: false,
+  rothLadderAmount: 0,
   // Year-by-year overrides
   yearOverrides: {}
 });
@@ -205,9 +222,7 @@ export { calculatePortfolioVolatility };
 // Re-export buildProjection for backward compatibility (now imported from engine)
 export { buildProjection };
 
-// Worker-based projection stores with debouncing
-// These use Web Worker for non-blocking calculations
-
+// Worker-based projection stores (no debounce so UI refreshes immediately)
 let lastProjectionResult = {
 	conservativeData: [],
 	financialData: [],
@@ -218,56 +233,91 @@ const conservativeDataStore = writable([]);
 const financialDataStore = writable([]);
 const aggressiveDataStore = writable([]);
 
-// Subscribe to input stores and trigger calculations on change (debounced)
-const debouncedCalculate = debounce(
-	async ($globals, $michaelExpenses, $briannaExpenses, $retirementExpenses, $specialEvents, $salaryAdjustments) => {
-		try {
-			const manager = getProjectionManager();
+const calculateProjections = async (
+	$globals,
+	$michaelExpenses,
+	$briannaExpenses,
+	$retirementExpenses,
+	$specialEvents,
+	$salaryAdjustments
+)	=> {
+	try {
+		const manager = getProjectionManager();
+		isCalculating.set(true);
 
-			isCalculating.set(true);
+		const result = await manager.calculateProjections({
+			globals: $globals,
+			michaelExpenses: $michaelExpenses,
+			briannaExpenses: $briannaExpenses,
+			retirementExpenses: $retirementExpenses,
+			specialEvents: $specialEvents,
+			salaryAdjustments: $salaryAdjustments
+		});
 
-			const result = await manager.calculateProjections({
-				globals: $globals,
-				michaelExpenses: $michaelExpenses,
-				briannaExpenses: $briannaExpenses,
-				retirementExpenses: $retirementExpenses,
-				specialEvents: $specialEvents,
-				salaryAdjustments: $salaryAdjustments
-			});
+		if (result.success) {
+			lastProjectionResult = {
+				conservativeData: result.conservativeData || [],
+				financialData: result.financialData || [],
+				aggressiveData: result.aggressiveData || []
+			};
+		} else {
+			console.error('Projection calculation error:', result.error);
+			const baseReturn = calculatePortfolioReturn($globals);
+			const volatility = calculatePortfolioVolatility($globals);
+			const conservativeReturn = baseReturn - volatility * 0.67;
+			const aggressiveReturn = baseReturn + volatility * 0.67;
 
-			if (result.success) {
-				lastProjectionResult = {
-					conservativeData: result.conservativeData || [],
-					financialData: result.financialData || [],
-					aggressiveData: result.aggressiveData || []
-				};
-
-				conservativeDataStore.set(lastProjectionResult.conservativeData);
-				financialDataStore.set(lastProjectionResult.financialData);
-				aggressiveDataStore.set(lastProjectionResult.aggressiveData);
-			} else {
-				console.error('Projection calculation error:', result.error);
-			}
-
-			isCalculating.set(false);
-		} catch (error) {
-			console.error('Error calculating projections:', error);
-			isCalculating.set(false);
+			lastProjectionResult = {
+				conservativeData: buildProjection(
+					$globals,
+					$michaelExpenses,
+					$briannaExpenses,
+					$retirementExpenses,
+					$specialEvents,
+					$salaryAdjustments,
+					conservativeReturn
+				),
+				financialData: buildProjection(
+					$globals,
+					$michaelExpenses,
+					$briannaExpenses,
+					$retirementExpenses,
+					$specialEvents,
+					$salaryAdjustments,
+					null
+				),
+				aggressiveData: buildProjection(
+					$globals,
+					$michaelExpenses,
+					$briannaExpenses,
+					$retirementExpenses,
+					$specialEvents,
+					$salaryAdjustments,
+					aggressiveReturn
+				)
+			};
 		}
-	},
-	300 // 300ms debounce
-);
 
-// Set up subscription to trigger calculations
+		conservativeDataStore.set(lastProjectionResult.conservativeData);
+		financialDataStore.set(lastProjectionResult.financialData);
+		aggressiveDataStore.set(lastProjectionResult.aggressiveData);
+	} catch (error) {
+		console.error('Error calculating projections:', error);
+	} finally {
+		isCalculating.set(false);
+	}
+};
+
+// Set up subscription to trigger calculations immediately on change
 let unsubscribe = null;
 if (browser) {
 	unsubscribe = derived(
 		[globals, michaelExpenses, briannaExpenses, retirementExpenses, specialEvents, salaryAdjustments],
 		([$globals, $michaelExpenses, $briannaExpenses, $retirementExpenses, $specialEvents, $salaryAdjustments]) => {
-			debouncedCalculate($globals, $michaelExpenses, $briannaExpenses, $retirementExpenses, $specialEvents, $salaryAdjustments);
-			return null; // Derived store not used, only for side effects
+			calculateProjections($globals, $michaelExpenses, $briannaExpenses, $retirementExpenses, $specialEvents, $salaryAdjustments);
+			return null;
 		}
-	).subscribe(() => {}); // Subscribe to trigger
+	).subscribe(() => {});
 }
 
 export const conservativeData = derived(conservativeDataStore, ($data) => $data);

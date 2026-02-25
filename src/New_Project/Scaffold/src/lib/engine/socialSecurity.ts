@@ -5,9 +5,9 @@
 
 import type { SocialSecurityBenefit } from '../types/financial';
 
-// 2024 Social Security bend points (monthly earnings thresholds)
-const BEND_POINT_1 = 1174;
-const BEND_POINT_2 = 7078;
+// 2026 Social Security bend points (monthly earnings thresholds)
+const BEND_POINT_1 = 1286;
+const BEND_POINT_2 = 7749;
 
 // Bend point replacement rates
 const BEND_RATE_1 = 0.9;   // 90% of first bend point
@@ -18,6 +18,26 @@ const BEND_RATE_3 = 0.15;  // 15% above second bend point
 const FULL_RETIREMENT_AGE = 67; // Current generation
 const EARLY_CLAIMING_REDUCTION_RATE = 0.06667; // ~6.67% per year before FRA
 const EARLY_CLAIMING_MINIMUM = 0.7; // Minimum 70% of full benefit at age 62
+const DELAYED_RETIREMENT_CREDIT = 0.08; // 8% per year after FRA up to age 70
+const INDEXED_YEARS = 35; // SSA averages highest 35 indexed earnings years
+
+const buildIndexedEarnings = (
+  startSalary: number,
+  salaryGrowth: number,
+  yearsWorked: number,
+) => {
+  // Generate earnings history with compound growth; pad with zeros to 35 years
+  const earnings: number[] = [];
+  for (let i = 0; i < yearsWorked; i++) {
+    earnings.push(startSalary * Math.pow(1 + salaryGrowth, i));
+  }
+  while (earnings.length < INDEXED_YEARS) earnings.push(0);
+
+  // SSA uses highest 35 years; wages are wage-indexed in practice, here we approximate
+  const top35 = earnings.sort((a, b) => b - a).slice(0, INDEXED_YEARS);
+  const aime = top35.reduce((sum, val) => sum + val, 0) / (INDEXED_YEARS * 12);
+  return { aime, top35 };
+};
 
 /**
  * Calculate Social Security Primary Insurance Amount (PIA) and annual benefit
@@ -42,15 +62,9 @@ export const calculateSocialSecurity = (
     return 0;
   }
 
-  // Build salary progression for the years worked
-  let totalSalary = 0;
-  for (let i = 0; i < yearsWorked; i++) {
-    const yearSalary = startSalary * Math.pow(1 + salaryGrowth, i);
-    totalSalary += yearSalary;
-  }
-
-  const avgAnnualSalary = totalSalary / yearsWorked;
-  const monthlyEarnings = avgAnnualSalary / 12;
+  // Build indexed earnings and compute AIME using highest 35 years
+  const { aime } = buildIndexedEarnings(startSalary, salaryGrowth, yearsWorked);
+  const monthlyEarnings = aime;
 
   // Calculate Primary Insurance Amount (PIA) using bend points
   let pia = 0;
@@ -67,11 +81,19 @@ export const calculateSocialSecurity = (
   // Annual benefit at full retirement age
   let annualBenefit = pia * 12;
 
-  // Adjust for early claiming (claiming before full retirement age reduces benefit)
+  // Early claiming reduction
   if (claimingAge < FULL_RETIREMENT_AGE) {
     const yearsEarly = FULL_RETIREMENT_AGE - claimingAge;
     const reductionFactor = 1 - yearsEarly * EARLY_CLAIMING_REDUCTION_RATE;
     annualBenefit *= Math.max(EARLY_CLAIMING_MINIMUM, reductionFactor);
+  }
+
+  // Delayed retirement credits (up to age 70)
+  if (claimingAge > FULL_RETIREMENT_AGE) {
+    const yearsDelayed = Math.min(70, claimingAge) - FULL_RETIREMENT_AGE;
+    if (yearsDelayed > 0) {
+      annualBenefit *= 1 + yearsDelayed * DELAYED_RETIREMENT_CREDIT;
+    }
   }
 
   return Math.round(annualBenefit);
@@ -103,14 +125,8 @@ export const calculateSocialSecurityBenefit = (
     };
   }
 
-  // Average earnings calculation
-  let totalSalary = 0;
-  for (let i = 0; i < yearsWorked; i++) {
-    const yearSalary = startSalary * Math.pow(1 + salaryGrowth, i);
-    totalSalary += yearSalary;
-  }
-  const avgAnnualSalary = totalSalary / yearsWorked;
-  const monthlyEarningsAvg = avgAnnualSalary / 12;
+  const { aime, top35 } = buildIndexedEarnings(startSalary, salaryGrowth, yearsWorked);
+  const monthlyEarningsAvg = aime;
 
   // PIA calculation
   let pia = 0;
@@ -134,12 +150,21 @@ export const calculateSocialSecurityBenefit = (
     annualBenefit *= Math.max(EARLY_CLAIMING_MINIMUM, reductionFactor);
   }
 
+  // Delayed retirement credit
+  if (claimingAge > FULL_RETIREMENT_AGE) {
+    const yearsDelayed = Math.min(70, claimingAge) - FULL_RETIREMENT_AGE;
+    if (yearsDelayed > 0) {
+      annualBenefit *= 1 + yearsDelayed * DELAYED_RETIREMENT_CREDIT;
+    }
+  }
+
   return {
     monthlyEarningsAvg,
     primaryInsuranceAmount: pia,
     annualBenefit: Math.round(annualBenefit),
     claimingAge,
-    fullRetirementAge: FULL_RETIREMENT_AGE
+    fullRetirementAge: FULL_RETIREMENT_AGE,
+    indexedEarnings: top35,
   };
 };
 

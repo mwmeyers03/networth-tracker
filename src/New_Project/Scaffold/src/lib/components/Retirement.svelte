@@ -2,6 +2,8 @@
   import {
     globals,
     financialData,
+    conservativeData,
+    aggressiveData,
     retirementExpenses,
     formatCur,
     normalRandom,
@@ -15,7 +17,11 @@
   } from '$lib/stores/fireStore.js';
 
   let data = [];
+  let consData = [];
+  let aggData = [];
   $: data = $financialData || [];
+  $: consData = $conservativeData || [];
+  $: aggData = $aggressiveData || [];
 
   $: retirementYear = data.find((d) => d.retired)?.year || null;
   $: retirementNetWorth = data.find((d) => d.retired)?.netWorth || 0;
@@ -247,6 +253,42 @@
 
   $: monteCarloResult = runMonteCarlo(data);
   $: successRate = ((monteCarloResult.success / monteCarloResult.total) * 100).toFixed(1);
+
+  const computeMetrics = (rows) => {
+    if (!rows || !rows.length) {
+      return {
+        retirementYear: null,
+        retirementNetWorth: 0,
+        finalNetWorth: 0,
+        peakNetWorth: 0,
+        liquidityGap: false,
+        retention: 0,
+      };
+    }
+
+    const retiredRow = rows.find((d) => d.retired);
+    const retirementYear = retiredRow?.year ?? null;
+    const retirementNetWorth = retiredRow?.netWorth ?? 0;
+    const finalNetWorth = rows[rows.length - 1]?.netWorth ?? 0;
+    const peakNetWorth = Math.max(...rows.map((d) => d?.netWorth || 0));
+    const liquidityGap = rows.some((d) => d.liquidityGap > 0);
+    const startNetWorth = rows[0]?.netWorth || 0;
+    const retention = startNetWorth ? (finalNetWorth / startNetWorth) * 100 : 0;
+
+    return { retirementYear, retirementNetWorth, finalNetWorth, peakNetWorth, liquidityGap, retention };
+  };
+
+  let leftChoice = 'expected';
+  let rightChoice = 'conservative';
+
+  const getDataset = (choice) => {
+    if (choice === 'conservative') return consData;
+    if (choice === 'aggressive') return aggData;
+    return data;
+  };
+
+  $: leftMetrics = computeMetrics(getDataset(leftChoice));
+  $: rightMetrics = computeMetrics(getDataset(rightChoice));
 </script>
 
 <article class="retirement">
@@ -372,6 +414,51 @@
             {parseInt($globals.stockAllocation * 100)}% / {parseInt($globals.bondAllocation * 100)}% / {parseInt($globals.cashAllocation * 100)}%
           </span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="comparison-section">
+    <div class="comparison-header">
+      <h3>🟦 Side-by-Side Comparison</h3>
+      <div class="select-row">
+        <label>
+          Left
+          <select bind:value={leftChoice}>
+            <option value="expected">Expected</option>
+            <option value="conservative">Conservative</option>
+            <option value="aggressive">Aggressive</option>
+          </select>
+        </label>
+        <label>
+          Right
+          <select bind:value={rightChoice}>
+            <option value="expected">Expected</option>
+            <option value="conservative">Conservative</option>
+            <option value="aggressive">Aggressive</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="comparison-grid">
+      <div class="compare-card">
+        <div class="chip">{leftChoice}</div>
+        <div class="row"><span>Retires</span><span>{leftMetrics.retirementYear ?? '—'}</span></div>
+        <div class="row"><span>At Retirement</span><span>{formatCur(leftMetrics.retirementNetWorth)}</span></div>
+        <div class="row"><span>Peak NW</span><span>{formatCur(leftMetrics.peakNetWorth)}</span></div>
+        <div class="row"><span>Final NW</span><span>{formatCur(leftMetrics.finalNetWorth)}</span></div>
+        <div class="row"><span>Retention</span><span>{leftMetrics.retention.toFixed(0)}%</span></div>
+        <div class="row"><span>Liquidity Gap</span><span>{leftMetrics.liquidityGap ? 'Yes' : 'No'}</span></div>
+      </div>
+      <div class="compare-card">
+        <div class="chip">{rightChoice}</div>
+        <div class="row"><span>Retires</span><span>{rightMetrics.retirementYear ?? '—'}</span></div>
+        <div class="row"><span>At Retirement</span><span>{formatCur(rightMetrics.retirementNetWorth)}</span></div>
+        <div class="row"><span>Peak NW</span><span>{formatCur(rightMetrics.peakNetWorth)}</span></div>
+        <div class="row"><span>Final NW</span><span>{formatCur(rightMetrics.finalNetWorth)}</span></div>
+        <div class="row"><span>Retention</span><span>{rightMetrics.retention.toFixed(0)}%</span></div>
+        <div class="row"><span>Liquidity Gap</span><span>{rightMetrics.liquidityGap ? 'Yes' : 'No'}</span></div>
       </div>
     </div>
   </div>
@@ -630,5 +717,94 @@
     font-size: 0.9rem;
     color: #cbd5e1;
     line-height: 1.5;
+  }
+
+  .comparison-section {
+    margin-top: 2.5rem;
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+  }
+
+  .comparison-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .select-row {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .select-row label {
+    color: #94a3b8;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+  }
+
+  .select-row select {
+    background: #0f172a;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 0.4rem;
+    padding: 0.45rem 0.6rem;
+    min-width: 150px;
+  }
+
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+  }
+
+  .compare-card {
+    background: linear-gradient(145deg, rgba(59,130,246,0.08), rgba(124,58,237,0.08));
+    border: 1px solid #334155;
+    border-radius: 0.65rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .compare-card .row {
+    display: flex;
+    justify-content: space-between;
+    color: #cbd5e1;
+    font-size: 0.9rem;
+  }
+
+  .chip {
+    align-self: flex-start;
+    padding: 0.25rem 0.6rem;
+    background: rgba(59,130,246,0.2);
+    border: 1px solid #3b82f6;
+    border-radius: 999px;
+    color: #e0f2fe;
+    text-transform: capitalize;
+    font-weight: 700;
+    font-size: 0.75rem;
+  }
+
+  @media (max-width: 720px) {
+    .comparison-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .select-row {
+      width: 100%;
+    }
+
+    .select-row label {
+      flex: 1;
+    }
   }
 </style>
