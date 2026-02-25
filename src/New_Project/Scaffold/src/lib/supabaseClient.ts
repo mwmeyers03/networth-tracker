@@ -6,13 +6,15 @@
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient, SupabaseClientOptions } from '@supabase/supabase-js';
 
-// These should be in your .env.local file
+// These should be in your .env.local / deployment environment.
+// Vercel must define VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export const supabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+if (!supabaseConfigured) {
   console.warn(
-    'Supabase credentials not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local'
+    'Supabase credentials not configured. Falling back to local mode. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
   );
 }
 
@@ -26,7 +28,17 @@ const supabaseOptions: SupabaseClientOptions<'public'> = {
   }
 };
 
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, supabaseOptions);
+// Never crash app startup due to missing env vars.
+// Use harmless placeholders so createClient can be constructed and runtime fetches
+// fail gracefully (stores already catch and fallback to local data).
+const RESOLVED_SUPABASE_URL = SUPABASE_URL || 'https://placeholder.supabase.co';
+const RESOLVED_SUPABASE_ANON_KEY = SUPABASE_ANON_KEY || 'placeholder-anon-key';
+
+export const supabase: SupabaseClient = createClient(
+  RESOLVED_SUPABASE_URL,
+  RESOLVED_SUPABASE_ANON_KEY,
+  supabaseOptions
+);
 
 // Default household ID (Michael & Brianna)
 export const DEFAULT_HOUSEHOLD_ID = '00000000-0000-0000-0000-000000000001';
