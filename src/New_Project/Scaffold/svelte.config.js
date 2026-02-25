@@ -3,7 +3,7 @@ import adapterVercel from '@sveltejs/adapter-vercel';
 
 // Use static adapter when building for Tauri desktop app, Vercel adapter for web
 const isTauri = process.env.TAURI_BUILD === '1';
-const isVercel = process.env.VERCEL === '1' || process.env.CI === 'true';
+const isVercel = process.env.VERCEL === '1';
 const isWinLocal = process.platform === 'win32' && !isVercel && !isTauri;
 
 /** @type {import('@sveltejs/kit').Config} */
@@ -15,11 +15,15 @@ const config = {
 					pages: 'build',
 					assets: 'build'
 				})
+			: isVercel
+			? adapterVercel()
 			: isWinLocal
 			? adapterStatic({
 					fallback: 'index.html'
 				})
-			: adapterVercel()
+			: adapterStatic({
+					fallback: 'index.html'
+			  })
 	}
 };
 
