@@ -359,15 +359,19 @@ export const buildProjection = (
           ? calculateFederalTax(bSalary, b401kCapped, globals.state, globals.stateTaxRates)
           : 0;
 
-      // Household cashflow: pool take-home and cover combined expenses from pooled savings/brokerage
-      const householdTakeHome = mTakeHome + bTakeHome;
-      const householdRoth = mRothContrib + bRothContrib;
-      const netCash = householdTakeHome - yearlyExpenses - householdRoth;
+      // Household cashflow: include all post-tax contributions as cash outflows.
+      // This avoids artificial surplus growth in savings.
+      const mCashflow = mTakeHome - mExp * 12 - mRothContrib - mHsaContrib - m529Contrib;
+      const bCashflow = bTakeHome - bExp * 12 - bRothContrib - bHsaContrib - b529Contrib;
+      const netCash = mCashflow + bCashflow;
 
       if (netCash >= 0) {
-        // Add surplus to savings proportional to existing balances (fallback 50/50)
-        const totalSavings = mSavingsBal + bSavingsBal;
-        const mShare = totalSavings > 0 ? mSavingsBal / totalSavings : 0.5;
+        // Allocate surplus by positive contributor share (fallback 50/50).
+        // Using savings-balance share can bias growth into one person's account.
+        const mPositive = Math.max(0, mCashflow);
+        const bPositive = Math.max(0, bCashflow);
+        const totalPositive = mPositive + bPositive;
+        const mShare = totalPositive > 0 ? mPositive / totalPositive : 0.5;
         const bShare = 1 - mShare;
         mSavingsBal += netCash * mShare;
         bSavingsBal += netCash * bShare;

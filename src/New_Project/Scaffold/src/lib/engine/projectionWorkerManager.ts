@@ -31,6 +31,7 @@ export class ProjectionWorkerManager {
   private pendingRequest: ((result: ProjectionWorkerResult) => void)[] = [];
   private isCalculating: boolean = false;
   private lastInput: ProjectionWorkerInput | null = null;
+  private recalcRequested: boolean = false;
 
   constructor(debounceMs: number = 300) {
     this.debounceMs = debounceMs;
@@ -54,6 +55,14 @@ export class ProjectionWorkerManager {
         }
 
         this.isCalculating = false;
+
+        // If newer input arrived while this run was in-flight, run again first
+        // and resolve all queued callers with the freshest result.
+        if (this.recalcRequested && this.lastInput) {
+          this.recalcRequested = false;
+          this.executeCalculation(this.lastInput);
+          return;
+        }
 
         if (event.data.success) {
           // Resolve all pending callbacks
@@ -81,6 +90,7 @@ export class ProjectionWorkerManager {
       };
 
       this.worker.onerror = (error) => {
+        this.isCalculating = false;
         console.error('Worker initialization error:', error);
         this.pendingRequest.forEach((callback) => {
           callback({
@@ -117,7 +127,9 @@ export class ProjectionWorkerManager {
 
       // Debounce the actual calculation
       this.debounceTimer = setTimeout(() => {
-        this.executeCalculation(input);
+        if (this.lastInput) {
+          this.executeCalculation(this.lastInput);
+        }
       }, this.debounceMs);
     });
   }
@@ -128,6 +140,7 @@ export class ProjectionWorkerManager {
   private executeCalculation(input: ProjectionWorkerInput): void {
     if (this.isCalculating) {
       // Calculation already in progress, new request will be handled after
+      this.recalcRequested = true;
       return;
     }
 
@@ -198,6 +211,12 @@ export class ProjectionWorkerManager {
 
       this.isCalculating = false;
 
+      if (this.recalcRequested && this.lastInput) {
+        this.recalcRequested = false;
+        this.executeCalculation(this.lastInput);
+        return;
+      }
+
       // Resolve all pending callbacks
       this.pendingRequest.forEach((callback) => {
         callback({
@@ -210,6 +229,13 @@ export class ProjectionWorkerManager {
       this.pendingRequest = [];
     } catch (error) {
       this.isCalculating = false;
+
+      if (this.recalcRequested && this.lastInput) {
+        this.recalcRequested = false;
+        this.executeCalculation(this.lastInput);
+        return;
+      }
+
       this.pendingRequest.forEach((callback) => {
         callback({
           success: false,
