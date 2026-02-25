@@ -269,33 +269,53 @@ export const applySequentialWithdrawal = (
   let needed = targetAmount;
   const sources: string[] = [];
 
-  // ── 1. Savings (both people) ─────────────────────────────────────────────
-  for (const key of ['mSavingsBal', 'bSavingsBal'] as const) {
-    if (needed <= 0) break;
-    if (b[key] <= 0) continue;
-    const take = Math.min(b[key], needed);
-    b[key] -= take;
-    needed -= take;
-    if (!sources.includes('Savings')) sources.push('Savings');
+  // ── 1. Savings (both people, proportional draw) ─────────────────────────
+  if (needed > 0) {
+    const totalSavings = b.mSavingsBal + b.bSavingsBal;
+    if (totalSavings > 0) {
+      const totalTake = Math.min(totalSavings, needed);
+      const mShare = b.mSavingsBal / totalSavings;
+      const mTake = Math.min(b.mSavingsBal, totalTake * mShare);
+      const bTake = Math.min(b.bSavingsBal, totalTake - mTake);
+      b.mSavingsBal -= mTake;
+      b.bSavingsBal -= bTake;
+      needed -= mTake + bTake;
+      if (!sources.includes('Savings')) sources.push('Savings');
+    }
   }
 
-  // ── 2. Brokerage (capital-gains tax applies) ──────────────────────────────
+  // ── 2. Brokerage (capital-gains tax applies, proportional draw) ──────────
   let lossCarry = opts.capitalLossCarry ?? 0;
-  for (const key of ['mBrokerageBal', 'bBrokerageBal'] as const) {
-    if (needed <= 0) break;
-    if (b[key] <= 0) continue;
-    // To net `needed` after cap-gains tax: gross = needed / (1 − taxRate)
-    const cgt = opts.capitalGainsTaxRate;
-    const grossNeeded = cgt < 1 ? needed / (1 - cgt) : needed;
-    const grossTake = Math.min(b[key], grossNeeded);
-    // Apply tax-loss harvesting carryforward against realized gains
-    const taxableGain = Math.max(0, grossTake - lossCarry);
-    const taxDue = taxableGain * cgt;
-    const netProceeds = grossTake - taxDue;
-    lossCarry = Math.max(0, lossCarry - grossTake + taxableGain); // reduce carry by gains used
-    b[key] -= grossTake;
-    needed -= netProceeds;
-    if (!sources.includes('Brokerage')) sources.push('Brokerage');
+  if (needed > 0) {
+    const totalBrokerage = b.mBrokerageBal + b.bBrokerageBal;
+    if (totalBrokerage > 0) {
+      const cgt = opts.capitalGainsTaxRate;
+      const grossNeeded = cgt < 1 ? needed / (1 - cgt) : needed;
+      const grossTakeTotal = Math.min(totalBrokerage, grossNeeded);
+      const mShare = b.mBrokerageBal / totalBrokerage;
+      const mGrossTake = Math.min(b.mBrokerageBal, grossTakeTotal * mShare);
+      const bGrossTake = Math.min(b.bBrokerageBal, grossTakeTotal - mGrossTake);
+
+      // Michael slice
+      const mTaxableGain = Math.max(0, mGrossTake - lossCarry);
+      const mTaxDue = mTaxableGain * cgt;
+      const mNet = mGrossTake - mTaxDue;
+      lossCarry = Math.max(0, lossCarry - mGrossTake + mTaxableGain);
+      b.mBrokerageBal -= mGrossTake;
+      needed -= mNet;
+
+      // Brianna slice
+      if (needed > 0 && bGrossTake > 0) {
+        const bTaxableGain = Math.max(0, bGrossTake - lossCarry);
+        const bTaxDue = bTaxableGain * cgt;
+        const bNet = bGrossTake - bTaxDue;
+        lossCarry = Math.max(0, lossCarry - bGrossTake + bTaxableGain);
+        b.bBrokerageBal -= bGrossTake;
+        needed -= bNet;
+      }
+
+      if (!sources.includes('Brokerage')) sources.push('Brokerage');
+    }
   }
 
   // ── 3. 401k / traditional IRA ────────────────────────────────────────────

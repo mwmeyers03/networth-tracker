@@ -47,6 +47,8 @@ export interface Globals {
   brianna401kMatch: number;
   michaelRothYearlyContrib: number;
   briannaRothYearlyContrib: number;
+  michaelBrokerageYearlyContrib?: number;
+  briannaBrokerageYearlyContrib?: number;
   michaelHsaYearlyContrib?: number;
   briannaHsaYearlyContrib?: number;
   michael529YearlyContrib?: number;

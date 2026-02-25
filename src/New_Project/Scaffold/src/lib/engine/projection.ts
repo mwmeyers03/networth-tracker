@@ -266,15 +266,15 @@ export const buildProjection = (
     // Capture pre-return brokerage for TLH
     const preReturnBrokerage = mBrokerageBal + bBrokerageBal;
 
-    // Apply returns: growth assets get market return; savings grow at cash return
+    // Apply returns: growth assets get market return; savings are treated as no-interest cash.
     m401kBal *= 1 + marketReturn;
     b401kBal *= 1 + marketReturn;
     mRothBal *= 1 + marketReturn;
     bRothBal *= 1 + marketReturn;
     mBrokerageBal *= 1 + marketReturn;
     bBrokerageBal *= 1 + marketReturn;
-    mSavingsBal *= 1 + globals.cashReturn;
-    bSavingsBal *= 1 + globals.cashReturn;
+    mSavingsBal *= 1;
+    bSavingsBal *= 1;
     mHsaBal *= 1 + marketReturn;
     bHsaBal *= 1 + marketReturn;
     m529Bal *= 1 + marketReturn;
@@ -349,6 +349,12 @@ export const buildProjection = (
       m529Bal += m529Contrib;
       b529Bal += b529Contrib;
 
+      // Brokerage contributions
+      const mBrokerageContrib = globals.michaelBrokerageYearlyContrib || 0;
+      const bBrokerageContrib = globals.briannaBrokerageYearlyContrib || 0;
+      mBrokerageBal += mBrokerageContrib;
+      bBrokerageBal += bBrokerageContrib;
+
       // Calculate take-home pay after taxes
       const mTakeHome =
         mSalary > 0
@@ -361,8 +367,10 @@ export const buildProjection = (
 
       // Household cashflow: include all post-tax contributions as cash outflows.
       // This avoids artificial surplus growth in savings.
-      const mCashflow = mTakeHome - mExp * 12 - mRothContrib - mHsaContrib - m529Contrib;
-      const bCashflow = bTakeHome - bExp * 12 - bRothContrib - bHsaContrib - b529Contrib;
+      const mCashflow =
+        mTakeHome - mExp * 12 - mRothContrib - mHsaContrib - m529Contrib - mBrokerageContrib;
+      const bCashflow =
+        bTakeHome - bExp * 12 - bRothContrib - bHsaContrib - b529Contrib - bBrokerageContrib;
       const netCash = mCashflow + bCashflow;
 
       if (netCash >= 0) {

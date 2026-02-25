@@ -220,7 +220,13 @@
           <label>Savings ($)
             <input type="number" value={$globals.michaelSavingsStart} on:input={(e) => globals.update(g => ({ ...g, michaelSavingsStart: parseNum(e.currentTarget.value) }))} />
           </label>
-          <div class="total">Michael Total: ${($globals.michael401kStart + $globals.michaelRothStart + $globals.michaelBrokerageStart + $globals.michaelSavingsStart).toLocaleString()}</div>
+          <label>HSA ($)
+            <input type="number" value={$globals.michaelHsaStart || 0} on:input={(e) => globals.update(g => ({ ...g, michaelHsaStart: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>529 ($)
+            <input type="number" value={$globals.michael529Start || 0} on:input={(e) => globals.update(g => ({ ...g, michael529Start: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <div class="total">Michael Total: ${($globals.michael401kStart + $globals.michaelRothStart + $globals.michaelBrokerageStart + $globals.michaelSavingsStart + ($globals.michaelHsaStart || 0) + ($globals.michael529Start || 0)).toLocaleString()}</div>
           
           <h4>Brianna's Accounts</h4>
           <label>401k ($)
@@ -235,9 +241,15 @@
           <label>Savings ($)
             <input type="number" value={$globals.briannaSavingsStart} on:input={(e) => globals.update(g => ({ ...g, briannaSavingsStart: parseNum(e.currentTarget.value) }))} />
           </label>
-          <div class="total">Brianna Total: ${($globals.brianna401kStart + $globals.briannaRothStart + $globals.briannaBrokerageStart + $globals.briannaSavingsStart).toLocaleString()}</div>
+          <label>HSA ($)
+            <input type="number" value={$globals.briannaHsaStart || 0} on:input={(e) => globals.update(g => ({ ...g, briannaHsaStart: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>529 ($)
+            <input type="number" value={$globals.brianna529Start || 0} on:input={(e) => globals.update(g => ({ ...g, brianna529Start: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <div class="total">Brianna Total: ${($globals.brianna401kStart + $globals.briannaRothStart + $globals.briannaBrokerageStart + $globals.briannaSavingsStart + ($globals.briannaHsaStart || 0) + ($globals.brianna529Start || 0)).toLocaleString()}</div>
           
-          <div class="total">Combined Net Worth: ${($globals.michael401kStart + $globals.brianna401kStart + $globals.michaelRothStart + $globals.briannaRothStart + $globals.michaelBrokerageStart + $globals.briannaBrokerageStart + $globals.michaelSavingsStart + $globals.briannaSavingsStart).toLocaleString()}</div>
+          <div class="total">Combined Net Worth: ${($globals.michael401kStart + $globals.brianna401kStart + $globals.michaelRothStart + $globals.briannaRothStart + $globals.michaelBrokerageStart + $globals.briannaBrokerageStart + $globals.michaelSavingsStart + $globals.briannaSavingsStart + ($globals.michaelHsaStart || 0) + ($globals.briannaHsaStart || 0) + ($globals.michael529Start || 0) + ($globals.brianna529Start || 0)).toLocaleString()}</div>
         </div>
       {/if}
     </article>
@@ -295,6 +307,24 @@
           </label>
           <label>Brianna Brokerage Yearly ($)
             <input value={$globals.briannaBrokerageYearlyContrib} on:input={(e) => globals.update(g => ({ ...g, briannaBrokerageYearlyContrib: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>Michael HSA Yearly ($)
+            <input value={$globals.michaelHsaYearlyContrib || 0} on:input={(e) => globals.update(g => ({ ...g, michaelHsaYearlyContrib: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>Brianna HSA Yearly ($)
+            <input value={$globals.briannaHsaYearlyContrib || 0} on:input={(e) => globals.update(g => ({ ...g, briannaHsaYearlyContrib: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>Michael 529 Yearly ($)
+            <input value={$globals.michael529YearlyContrib || 0} on:input={(e) => globals.update(g => ({ ...g, michael529YearlyContrib: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>Brianna 529 Yearly ($)
+            <input value={$globals.brianna529YearlyContrib || 0} on:input={(e) => globals.update(g => ({ ...g, brianna529YearlyContrib: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>Healthcare Spend from HSA ($/yr)
+            <input value={$globals.healthcareAnnual || 0} on:input={(e) => globals.update(g => ({ ...g, healthcareAnnual: parseNum(e.currentTarget.value) }))} />
+          </label>
+          <label>Education Spend from 529 ($/yr)
+            <input value={$globals.educationAnnual || 0} on:input={(e) => globals.update(g => ({ ...g, educationAnnual: parseNum(e.currentTarget.value) }))} />
           </label>
         </div>
       {/if}

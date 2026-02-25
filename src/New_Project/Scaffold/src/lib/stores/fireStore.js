@@ -79,6 +79,8 @@ export const globals = localStore('fire-globals', {
 	brianna401kMatch: 0.03,
   michaelRothYearlyContrib: 7000,
   briannaRothYearlyContrib: 0,
+	michaelBrokerageYearlyContrib: 0,
+	briannaBrokerageYearlyContrib: 0,
 	michaelHsaYearlyContrib: 0,
 	briannaHsaYearlyContrib: 0,
 	michael529YearlyContrib: 0,

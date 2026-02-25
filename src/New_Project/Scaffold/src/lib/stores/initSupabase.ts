@@ -100,7 +100,7 @@ export async function initializeSupabaseStores(householdId: string = DEFAULT_HOU
           'VA': 0.0775, 'WA': 0.00, 'WV': 0.065, 'WI': 0.0993, 'WY': 0.00
         }
       };
-      globals.set(transformed);
+      globals.update(g => ({ ...g, ...transformed }));
     }
 
     // Load monthly expenses from Supabase
@@ -181,7 +181,7 @@ export async function initializeSupabaseStores(householdId: string = DEFAULT_HOU
     subscribeToGlobals(householdId, (updatedGlobals) => {
       // Convert snake_case to camelCase and update store
       const transformed = convertGlobalsFromDB(updatedGlobals);
-      globals.set(transformed);
+      globals.update(g => ({ ...g, ...transformed }));
     });
 
     subscribeToMonthlyExpenses(householdId, (updatedExpenses) => {
