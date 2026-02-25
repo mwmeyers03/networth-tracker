@@ -32,6 +32,11 @@
   // ── Summary stats ──────────────────────────────────────────────────────
   $: maxNetWorth = data.length ? Math.max(...data.map(d => d?.netWorth || 0)) : 0;
   $: peakYear    = data.find(d => d?.netWorth === maxNetWorth)?.year ?? '—';
+  $: hasSavingsSeries = data.some((d) => (d?.totalSavings || 0) > 0);
+  $: hasBrokerageSeries = data.some((d) => (d?.totalBrokerage || 0) > 0);
+  $: has401kSeries = data.some((d) => (d?.total401k || 0) > 0);
+  $: hasRothSeries = data.some((d) => (d?.totalRoth || 0) > 0);
+  $: hasHsaSeries = data.some((d) => ((d?.totalHsa || 0) + (d?.total529 || 0)) > 0);
 
   // ── Legend visibility toggles ──────────────────────────────────────────
   let showSavings = true;
@@ -170,21 +175,31 @@
     <button class="legend-btn" class:active={showTotal} on:click={() => toggle('total')}>
       <span class="swatch swatch-total"></span>Total Net Worth
     </button>
-    <button class="legend-btn" class:active={showSavings} on:click={() => toggle('savings')}>
-      <span class="swatch swatch-savings"></span>Savings
-    </button>
-    <button class="legend-btn" class:active={showBrokerage} on:click={() => toggle('brokerage')}>
-      <span class="swatch swatch-brokerage"></span>Brokerage
-    </button>
-    <button class="legend-btn" class:active={show401k} on:click={() => toggle('401k')}>
-      <span class="swatch swatch-401k"></span>401k
-    </button>
-    <button class="legend-btn" class:active={showRoth} on:click={() => toggle('roth')}>
-      <span class="swatch swatch-roth"></span>Roth
-    </button>
-    <button class="legend-btn" class:active={showHsa} on:click={() => toggle('hsa')}>
-      <span class="swatch swatch-hsa"></span>HSA / 529
-    </button>
+    {#if hasSavingsSeries}
+      <button class="legend-btn" class:active={showSavings} on:click={() => toggle('savings')}>
+        <span class="swatch swatch-savings"></span>Savings
+      </button>
+    {/if}
+    {#if hasBrokerageSeries}
+      <button class="legend-btn" class:active={showBrokerage} on:click={() => toggle('brokerage')}>
+        <span class="swatch swatch-brokerage"></span>Brokerage
+      </button>
+    {/if}
+    {#if has401kSeries}
+      <button class="legend-btn" class:active={show401k} on:click={() => toggle('401k')}>
+        <span class="swatch swatch-401k"></span>401k
+      </button>
+    {/if}
+    {#if hasRothSeries}
+      <button class="legend-btn" class:active={showRoth} on:click={() => toggle('roth')}>
+        <span class="swatch swatch-roth"></span>Roth
+      </button>
+    {/if}
+    {#if hasHsaSeries}
+      <button class="legend-btn" class:active={showHsa} on:click={() => toggle('hsa')}>
+        <span class="swatch swatch-hsa"></span>HSA / 529
+      </button>
+    {/if}
 
     {#if michaelRetirementYear}
       <span class="retire-marker michael">M retires {michaelRetirementYear}</span>
@@ -276,11 +291,11 @@
 
   .swatch { width: 20px; height: 8px; border-radius: 3px; }
   .swatch.swatch-total      { background: repeating-linear-gradient(90deg, rgba(226,232,240,0.9) 0 5px, transparent 5px 9px); height: 3px; }
-  .swatch.swatch-savings    { background: rgba(94,234,212,0.5); }
-  .swatch.swatch-brokerage  { background: rgba(59,130,246,0.5); }
-  .swatch.swatch-401k       { background: rgba(250,204,21,0.45); }
-  .swatch.swatch-roth       { background: rgba(236,72,153,0.5); }
-  .swatch.swatch-hsa        { background: rgba(34,197,94,0.45); }
+  .swatch.swatch-savings    { background: rgba(45,212,191,0.95); }
+  .swatch.swatch-brokerage  { background: rgba(37,99,235,0.95); }
+  .swatch.swatch-401k       { background: rgba(250,204,21,0.95); }
+  .swatch.swatch-roth       { background: rgba(236,72,153,0.95); }
+  .swatch.swatch-hsa        { background: rgba(34,197,94,0.95); }
 
   .retire-marker {
     font-size: 0.65rem; font-weight: 600;

@@ -222,12 +222,23 @@ export function buildStackedAccountChartData(
 ): EnvelopeChartData {
   const labels = expectedData.map((d) => String(d.year));
 
-  const datasets: ChartDatasetSpec[] = [
-    {
+  const savingsSeries = expectedData.map((d) => d.totalSavings ?? 0);
+  const brokerageSeries = expectedData.map((d) => d.totalBrokerage ?? 0);
+  const k401Series = expectedData.map((d) => d.total401k ?? 0);
+  const rothSeries = expectedData.map((d) => d.totalRoth ?? 0);
+  const hsa529Series = expectedData.map((d) => (d.totalHsa ?? 0) + (d.total529 ?? 0));
+  const totalSeries = expectedData.map((d) => d.netWorth ?? 0);
+
+  const hasValue = (series: number[]) => series.some((value) => value > 0);
+
+  const datasets: ChartDatasetSpec[] = [];
+
+  if (hasValue(savingsSeries)) {
+    datasets.push({
       label: 'Savings',
-      data: expectedData.map((d) => d.totalSavings ?? 0),
+      data: savingsSeries,
       borderColor: 'transparent',
-      backgroundColor: 'rgba(94,234,212,0.18)',
+      backgroundColor: 'rgba(45, 212, 191, 0.35)',
       borderWidth: 0,
       stack: 'balances',
       fill: true,
@@ -235,12 +246,15 @@ export function buildStackedAccountChartData(
       tension: 0.25,
       spanGaps: true,
       order: 2,
-    },
-    {
+    });
+  }
+
+  if (hasValue(brokerageSeries)) {
+    datasets.push({
       label: 'Brokerage',
-      data: expectedData.map((d) => d.totalBrokerage ?? 0),
+      data: brokerageSeries,
       borderColor: 'transparent',
-      backgroundColor: 'rgba(59,130,246,0.18)',
+      backgroundColor: 'rgba(37, 99, 235, 0.35)',
       borderWidth: 0,
       stack: 'balances',
       fill: true,
@@ -248,12 +262,15 @@ export function buildStackedAccountChartData(
       tension: 0.25,
       spanGaps: true,
       order: 2,
-    },
-    {
+    });
+  }
+
+  if (hasValue(k401Series)) {
+    datasets.push({
       label: '401k',
-      data: expectedData.map((d) => d.total401k ?? 0),
+      data: k401Series,
       borderColor: 'transparent',
-      backgroundColor: 'rgba(250,204,21,0.14)',
+      backgroundColor: 'rgba(250, 204, 21, 0.35)',
       borderWidth: 0,
       stack: 'balances',
       fill: true,
@@ -261,12 +278,15 @@ export function buildStackedAccountChartData(
       tension: 0.25,
       spanGaps: true,
       order: 2,
-    },
-    {
+    });
+  }
+
+  if (hasValue(rothSeries)) {
+    datasets.push({
       label: 'Roth',
-      data: expectedData.map((d) => d.totalRoth ?? 0),
+      data: rothSeries,
       borderColor: 'transparent',
-      backgroundColor: 'rgba(236,72,153,0.16)',
+      backgroundColor: 'rgba(236, 72, 153, 0.35)',
       borderWidth: 0,
       stack: 'balances',
       fill: true,
@@ -274,12 +294,15 @@ export function buildStackedAccountChartData(
       tension: 0.25,
       spanGaps: true,
       order: 2,
-    },
-    {
+    });
+  }
+
+  if (hasValue(hsa529Series)) {
+    datasets.push({
       label: 'HSA/529',
-      data: expectedData.map((d) => (d.totalHsa ?? 0) + (d.total529 ?? 0)),
+      data: hsa529Series,
       borderColor: 'transparent',
-      backgroundColor: 'rgba(34,197,94,0.14)',
+      backgroundColor: 'rgba(34, 197, 94, 0.35)',
       borderWidth: 0,
       stack: 'balances',
       fill: true,
@@ -287,10 +310,12 @@ export function buildStackedAccountChartData(
       tension: 0.25,
       spanGaps: true,
       order: 2,
-    },
-    {
+    });
+  }
+
+  datasets.push({
       label: 'Total Net Worth',
-      data: expectedData.map((d) => d.netWorth ?? 0),
+      data: totalSeries,
       borderColor: 'rgba(226,232,240,1)',
       backgroundColor: 'transparent',
       borderWidth: 2,
@@ -300,8 +325,7 @@ export function buildStackedAccountChartData(
       tension: 0.25,
       spanGaps: true,
       order: 1,
-    },
-  ];
+    });
 
   return { labels, datasets };
 }
@@ -334,40 +358,12 @@ export function buildChartOptions(
         callbacks: {
           label: (ctx: any) => {
             const value: number = ctx.raw ?? 0;
-            if (value === null) return '';
+            if (value === null || value <= 0) return '';
             return ` ${ctx.dataset.label}: ${new Intl.NumberFormat('en-US', {
               style: 'currency',
               currency: 'USD',
               maximumFractionDigits: 0,
             }).format(value)}`;
-          },
-          afterBody: (items: any[]) => {
-            if (!breakdownByYear || !items?.length) return '';
-            const year = Number(items[0].label);
-            const row = breakdownByYear[year];
-            if (!row) return '';
-
-            const lines: string[] = [];
-            const parts: Array<[string, number | undefined]> = [
-              ['401k', row.total401k],
-              ['Roth', row.totalRoth],
-              ['Brokerage', row.totalBrokerage],
-              ['Savings', row.totalSavings],
-              ['HSA', row.totalHsa],
-              ['529', row.total529],
-            ];
-
-            parts.forEach(([label, val]) => {
-              if (typeof val === 'number' && !Number.isNaN(val)) {
-                lines.push(`${label}: ${new Intl.NumberFormat('en-US', {
-                  style: 'currency',
-                  currency: 'USD',
-                  maximumFractionDigits: 0,
-                }).format(val)}`);
-              }
-            });
-
-            return lines.length ? lines : '';
           },
         },
       },
