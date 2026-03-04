@@ -6,10 +6,10 @@
   let aggressiveProjection = [];
   let globals$ = {};
   let showExportMenu = false;
-  let customReturnRates = {
-    conservative: 5.5,
-    expected: 6.75,
-    aggressive: 8.0
+  const scenarioAllocations = {
+    conservative: { stockAllocation: 0.60, bondAllocation: 0.30, cashAllocation: 0.10 },
+    expected: { stockAllocation: 0.70, bondAllocation: 0.20, cashAllocation: 0.10 },
+    aggressive: { stockAllocation: 0.80, bondAllocation: 0.10, cashAllocation: 0.10 }
   };
 
   $: data = $financialData || [];
@@ -17,12 +17,30 @@
   $: aggressiveProjection = $aggressiveData || [];
   $: globals$ = $globals || {};
 
+  /**
+   * @param {{ stockAllocation: number; bondAllocation: number; cashAllocation: number }} allocation
+   */
+  const scenarioReturn = (allocation) => {
+    /** @type {any} */
+    const g = globals$ || {};
+    return (
+      (g.stockReturn || 0) * allocation.stockAllocation +
+      (g.bondReturn || 0) * allocation.bondAllocation +
+      (g.cashReturn || 0) * allocation.cashAllocation
+    );
+  };
+
+  $: expectedReturnPct = (scenarioReturn(scenarioAllocations.expected) * 100).toFixed(2);
+  $: conservativeReturnPct = (scenarioReturn(scenarioAllocations.conservative) * 100).toFixed(2);
+  $: aggressiveReturnPct = (scenarioReturn(scenarioAllocations.aggressive) * 100).toFixed(2);
+
   // Calculate scenario metrics
   $: expectedMetrics = calculateMetrics(data);
-  $: conservativeMetrics = calculateMetrics(conservativeProjection, 0.055);
-  $: aggressiveMetrics = calculateMetrics(aggressiveProjection, 0.08);
+  $: conservativeMetrics = calculateMetrics(conservativeProjection);
+  $: aggressiveMetrics = calculateMetrics(aggressiveProjection);
 
-  const calculateMetrics = (projection, forceReturn = null) => {
+  /** @param {any[]} projection */
+  const calculateMetrics = (projection) => {
     if (!projection || projection.length === 0) {
       return {
         yearsToRetirement: 'N/A',
@@ -30,10 +48,9 @@
         minNetWorth: 0,
         maxNetWorth: 0,
         status: 'No data',
-        portfolioReturn: forceReturn !== null ? (forceReturn * 100).toFixed(1) : 'N/A',
         successProbability: 'N/A',
         failureYear: 'N/A',
-        safeWithdrawalRate: 'N/A'
+        balanceRetentionRate: 'N/A'
       };
     }
 
@@ -60,18 +77,14 @@
     const failureIdx = retirementYears.findIndex(d => (d?.netWorth || 0) < 0);
     const failureYear = failureIdx >= 0 ? retirementYears[failureIdx].year : 'Never';
 
-    // Calculate actual average withdrawal rate during retirement phase
-    // Shows what percentage of the starting retirement balance was withdrawn annually on average
-    const retirementNetWorth = projection[retirementStart]?.netWorth || 1;
-    const lastYear = projection[projection.length - 1];
-    const endingBalance = lastYear?.netWorth || 0;
-    
-    // Total withdrawal = starting balance - ending balance (accounting for portfolio performance)
-    // This is a rough calculation since we don't track actual withdrawals per year
-    // A better metric is whether the plan is sustainable (positive balance throughout retirement)
-    // We'll show actual ending balance as a percentage of starting retirement balance
-    const balanceRetentionRate = retirementNetWorth > 0 ? ((endingBalance / retirementNetWorth) * 100).toFixed(1) : 0;
-    const safeWithdrawalRate = (100 - balanceRetentionRate).toFixed(1); // Inverse: % withdrawn
+    const retirementNetWorthRaw = projection[retirementStart]?.netWorth || 0;
+    const retirementNetWorth = Math.max(0, retirementNetWorthRaw);
+    const endingBalance = finalNetWorth;
+
+    const rawRetention = retirementNetWorth > 0 ? (endingBalance / retirementNetWorth) * 100 : null;
+    const balanceRetentionRate = rawRetention === null
+      ? 'N/A'
+      : Math.max(0, Math.min(999, rawRetention)).toFixed(1);
 
     // Determine success status
     const status = finalNetWorth < 0 ? 'Unsustainable' : minNetWorth < 0 ? 'At Risk' : 'Sustainable';
@@ -85,23 +98,28 @@
       status,
       successProbability,
       failureYear,
-      safeWithdrawalRate,
       balanceRetentionRate
     };
   };
 
+  /** @param {string} status */
   const getStatusColor = (status) => {
     if (status === 'Sustainable') return '#10b981';
     if (status === 'At Risk') return '#f59e0b';
     return '#ef4444';
   };
 
+  /** @param {string} status */
   const getStatusIcon = (status) => {
     if (status === 'Sustainable') return '✓';
     if (status === 'At Risk') return '⚠';
     return '✗';
   };
 
+  /** @param {string | number} value */
+  const asPercent = (value) => value === 'N/A' ? 'N/A' : `${value}%`;
+
+  /** @param {'csv' | 'json'} format */
   const exportScenarios = (format) => {
     if (format === 'csv') {
       exportCSV();
@@ -116,9 +134,9 @@
     csv += 'Generated: ' + new Date().toLocaleDateString() + '\n\n';
     csv += 'Scenario,Portfolio Return,Years to Retirement,Retirement Year,Final Net Worth,Min Net Worth,Success Probability,Failure Year,Ending Balance %,Status\n';
     
-    csv += `Conservative,5.5%,${conservativeMetrics.yearsToRetirement},${conservativeMetrics.retirementYear},${conservativeMetrics.finalNetWorth},${conservativeMetrics.minNetWorth},${conservativeMetrics.successProbability}%,${conservativeMetrics.failureYear},${conservativeMetrics.balanceRetentionRate}%,${conservativeMetrics.status}\n`;
-    csv += `Expected,6.75%,${expectedMetrics.yearsToRetirement},${expectedMetrics.retirementYear},${expectedMetrics.finalNetWorth},${expectedMetrics.minNetWorth},${expectedMetrics.successProbability}%,${expectedMetrics.failureYear},${expectedMetrics.balanceRetentionRate}%,${expectedMetrics.status}\n`;
-    csv += `Aggressive,8.0%,${aggressiveMetrics.yearsToRetirement},${aggressiveMetrics.retirementYear},${aggressiveMetrics.finalNetWorth},${aggressiveMetrics.minNetWorth},${aggressiveMetrics.successProbability}%,${aggressiveMetrics.failureYear},${aggressiveMetrics.balanceRetentionRate}%,${aggressiveMetrics.status}\n`;
+    csv += `Conservative,${conservativeReturnPct}%,${conservativeMetrics.yearsToRetirement},${conservativeMetrics.retirementYear},${conservativeMetrics.finalNetWorth},${conservativeMetrics.minNetWorth},${conservativeMetrics.successProbability}%,${conservativeMetrics.failureYear},${asPercent(conservativeMetrics.balanceRetentionRate)},${conservativeMetrics.status}\n`;
+    csv += `Expected,${expectedReturnPct}%,${expectedMetrics.yearsToRetirement},${expectedMetrics.retirementYear},${expectedMetrics.finalNetWorth},${expectedMetrics.minNetWorth},${expectedMetrics.successProbability}%,${expectedMetrics.failureYear},${asPercent(expectedMetrics.balanceRetentionRate)},${expectedMetrics.status}\n`;
+    csv += `Aggressive,${aggressiveReturnPct}%,${aggressiveMetrics.yearsToRetirement},${aggressiveMetrics.retirementYear},${aggressiveMetrics.finalNetWorth},${aggressiveMetrics.minNetWorth},${aggressiveMetrics.successProbability}%,${aggressiveMetrics.failureYear},${asPercent(aggressiveMetrics.balanceRetentionRate)},${aggressiveMetrics.status}\n`;
 
     const element = document.createElement('a');
     element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv));
@@ -133,9 +151,9 @@
     const report = {
       generatedDate: new Date().toISOString(),
       scenarios: {
-        conservative: { return: '5.5%', ...conservativeMetrics },
-        expected: { return: '6.75%', ...expectedMetrics },
-        aggressive: { return: '8.0%', ...aggressiveMetrics }
+        conservative: { return: `${conservativeReturnPct}%`, ...conservativeMetrics },
+        expected: { return: `${expectedReturnPct}%`, ...expectedMetrics },
+        aggressive: { return: `${aggressiveReturnPct}%`, ...aggressiveMetrics }
       }
     };
 
@@ -176,7 +194,7 @@
       <div class="scenario-body">
         <div class="metric">
           <span class="label">Portfolio Return</span>
-          <span class="value">5.5%</span>
+          <span class="value">{conservativeReturnPct}%</span>
         </div>
         
         <div class="metric">
@@ -227,7 +245,7 @@
         
         <div class="metric">
           <span class="label">Ending Balance %</span>
-          <span class="value">{conservativeMetrics.balanceRetentionRate}%</span>
+          <span class="value">{asPercent(conservativeMetrics.balanceRetentionRate)}</span>
         </div>
         
         <div class="status-row">
@@ -249,7 +267,7 @@
       <div class="scenario-body">
         <div class="metric">
           <span class="label">Portfolio Return</span>
-          <span class="value">6.75%</span>
+          <span class="value">{expectedReturnPct}%</span>
         </div>
         
         <div class="metric">
@@ -300,7 +318,7 @@
         
         <div class="metric">
           <span class="label">Ending Balance %</span>
-          <span class="value">{expectedMetrics.balanceRetentionRate}%</span>
+          <span class="value">{asPercent(expectedMetrics.balanceRetentionRate)}</span>
         </div>
         
         <div class="status-row">
@@ -322,7 +340,7 @@
       <div class="scenario-body">
         <div class="metric">
           <span class="label">Portfolio Return</span>
-          <span class="value">8.0%</span>
+          <span class="value">{aggressiveReturnPct}%</span>
         </div>
         
         <div class="metric">
@@ -373,7 +391,7 @@
         
         <div class="metric">
           <span class="label">Ending Balance %</span>
-          <span class="value">{aggressiveMetrics.balanceRetentionRate}%</span>
+          <span class="value">{asPercent(aggressiveMetrics.balanceRetentionRate)}</span>
         </div>
         
         <div class="status-row">
@@ -396,7 +414,7 @@
       <li><strong>Final Net Worth:</strong> Total wealth at the end of the 42-year projection period</li>
       <li><strong>Min Net Worth:</strong> Lowest point in the portfolio during retirement years (watch for negatives)</li>
       <li><strong>Failure Year:</strong> First year your portfolio would go negative (or "Never" if it stays positive)</li>
-      <li><strong>Safe Withdrawal Rate:</strong> Sustainable percentage of portfolio you can withdraw annually based on initial retirement balance</li>
+      <li><strong>Ending Balance %:</strong> Final portfolio balance as a percent of balance at retirement start</li>
       <li><strong>Status:</strong>
         <span style="display: inline-block; color: #10b981;">✓ Sustainable</span> = Plan works through life expectancy,
         <span style="display: inline-block; color: #f59e0b;">⚠ At Risk</span> = Portfolio dips into negatives temporarily,

@@ -169,18 +169,34 @@ export class ProjectionWorkerManager {
       // Dynamically import to avoid circular dependencies
       const {
         buildProjection,
-        calculatePortfolioReturn,
-        calculatePortfolioVolatility
+        calculatePortfolioReturn
       } = await import('./index');
 
-      const baseReturn = calculatePortfolioReturn(input.globals);
-      const volatility = calculatePortfolioVolatility(input.globals);
+      const conservativeGlobals = {
+        ...input.globals,
+        stockAllocation: 0.60,
+        bondAllocation: 0.30,
+        cashAllocation: 0.10
+      };
+      const expectedGlobals = {
+        ...input.globals,
+        stockAllocation: 0.70,
+        bondAllocation: 0.20,
+        cashAllocation: 0.10
+      };
+      const aggressiveGlobals = {
+        ...input.globals,
+        stockAllocation: 0.80,
+        bondAllocation: 0.10,
+        cashAllocation: 0.10
+      };
 
-      const conservativeReturn = baseReturn - volatility * 0.67;
-      const aggressiveReturn = baseReturn + volatility * 0.67;
+      const conservativeReturn = calculatePortfolioReturn(conservativeGlobals);
+      const expectedReturn = calculatePortfolioReturn(expectedGlobals);
+      const aggressiveReturn = calculatePortfolioReturn(aggressiveGlobals);
 
       const conservativeData = buildProjection(
-        input.globals,
+        conservativeGlobals,
         input.michaelExpenses,
         input.briannaExpenses,
         input.retirementExpenses,
@@ -190,17 +206,17 @@ export class ProjectionWorkerManager {
       );
 
       const financialData = buildProjection(
-        input.globals,
+        expectedGlobals,
         input.michaelExpenses,
         input.briannaExpenses,
         input.retirementExpenses,
         input.specialEvents,
         input.salaryAdjustments,
-        null
+        expectedReturn
       );
 
       const aggressiveData = buildProjection(
-        input.globals,
+        aggressiveGlobals,
         input.michaelExpenses,
         input.briannaExpenses,
         input.retirementExpenses,

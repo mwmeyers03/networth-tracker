@@ -15,8 +15,7 @@
 
 import {
   buildProjection,
-  calculatePortfolioReturn,
-  calculatePortfolioVolatility
+  calculatePortfolioReturn
 } from './index';
 
 interface ProjectionWorkerInput {
@@ -43,14 +42,31 @@ self.onmessage = (event: MessageEvent<ProjectionWorkerInput>) => {
       salaryAdjustments
     } = event.data;
 
-    // Calculate base portfolio metrics for scenarios
-    const baseReturn = calculatePortfolioReturn(globals);
-    const volatility = calculatePortfolioVolatility(globals);
+    const conservativeGlobals = {
+      ...globals,
+      stockAllocation: 0.60,
+      bondAllocation: 0.30,
+      cashAllocation: 0.10
+    };
+    const expectedGlobals = {
+      ...globals,
+      stockAllocation: 0.70,
+      bondAllocation: 0.20,
+      cashAllocation: 0.10
+    };
+    const aggressiveGlobals = {
+      ...globals,
+      stockAllocation: 0.80,
+      bondAllocation: 0.10,
+      cashAllocation: 0.10
+    };
 
-    // Conservative scenario (base return - volatility)
-    const conservativeReturn = baseReturn - volatility * 0.67;
+    const conservativeReturn = calculatePortfolioReturn(conservativeGlobals);
+    const expectedReturn = calculatePortfolioReturn(expectedGlobals);
+    const aggressiveReturn = calculatePortfolioReturn(aggressiveGlobals);
+
     const conservativeData = buildProjection(
-      globals,
+      conservativeGlobals,
       michaelExpenses,
       briannaExpenses,
       retirementExpenses,
@@ -59,21 +75,20 @@ self.onmessage = (event: MessageEvent<ProjectionWorkerInput>) => {
       conservativeReturn
     );
 
-    // Expected scenario (base return)
+    // Expected scenario
     const financialData = buildProjection(
-      globals,
+      expectedGlobals,
       michaelExpenses,
       briannaExpenses,
       retirementExpenses,
       specialEvents,
       salaryAdjustments,
-      null // Use default portfolio return
+      expectedReturn
     );
 
-    // Aggressive scenario (base return + volatility)
-    const aggressiveReturn = baseReturn + volatility * 0.67;
+    // Aggressive scenario
     const aggressiveData = buildProjection(
-      globals,
+      aggressiveGlobals,
       michaelExpenses,
       briannaExpenses,
       retirementExpenses,
