@@ -21,3 +21,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Keep RIR notebook out of parent repo
+src/New_Project/RIR_Project/*.ipynb
+
+# Keep RIR project as its own repo
+src/New_Project/RIR_Project/
