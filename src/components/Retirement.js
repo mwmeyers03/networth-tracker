@@ -30,128 +30,132 @@ const Retirement = () => {
 
   const retirementYears = globals.lifeExpectancy - Math.max(globals.michaelRetirementAge, globals.briannaRetirementAge);
 
+  const thCls = "px-4 py-2.5 text-left text-xs font-medium text-slate-400 uppercase tracking-wide border-b border-slate-200";
+  const tdCls = "px-4 py-3 text-sm text-slate-600 border-b border-slate-100";
+  const trHover = "hover:bg-slate-50 transition-colors";
+
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
-      <div className="bg-slate-800/60 p-8 rounded-2xl shadow-lg border border-slate-700">
-        <h2 className="text-3xl font-bold text-slate-100 mb-6">Retirement Timeline & Projections</h2>
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="bg-white p-6 rounded-lg border border-slate-200">
+        <h2 className="text-base font-semibold text-slate-800 mb-4">Retirement Timeline & Projections</h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border border-slate-700">
-            <thead className="bg-slate-900/60 text-slate-200">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 border-b border-slate-700">Profile</th>
-                <th className="px-4 py-3 border-b border-slate-700">Target Age</th>
-                <th className="px-4 py-3 border-b border-slate-700">Years To Retirement</th>
-                <th className="px-4 py-3 border-b border-slate-700">Projected Net Worth</th>
+                <th className={thCls}>Profile</th>
+                <th className={thCls}>Target Age</th>
+                <th className={thCls}>Years To Retirement</th>
+                <th className={thCls}>Projected Net Worth</th>
               </tr>
             </thead>
-            <tbody className="text-slate-300">
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Michael</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-blue-400 font-semibold">{globals.michaelRetirementAge}</td>
-                <td className="px-4 py-3 border-b border-slate-700">{yearsToMichaelRetirement}</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-emerald-400 font-semibold">{formatCur(michaelRetirementNetWorth)}</td>
+            <tbody>
+              <tr className={trHover}>
+                <td className={tdCls}>Michael</td>
+                <td className={`${tdCls} font-semibold text-sky-600`}>{globals.michaelRetirementAge}</td>
+                <td className={tdCls}>{yearsToMichaelRetirement}</td>
+                <td className={`${tdCls} font-semibold text-emerald-600`}>{formatCur(michaelRetirementNetWorth)}</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Brianna</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-purple-400 font-semibold">{globals.briannaRetirementAge}</td>
-                <td className="px-4 py-3 border-b border-slate-700">{yearsToBriannaRetirement}</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-emerald-400 font-semibold">{formatCur(briannaRetirementNetWorth)}</td>
+              <tr className={trHover}>
+                <td className={tdCls}>Brianna</td>
+                <td className={`${tdCls} font-semibold text-violet-600`}>{globals.briannaRetirementAge}</td>
+                <td className={tdCls}>{yearsToBriannaRetirement}</td>
+                <td className={`${tdCls} font-semibold text-emerald-600`}>{formatCur(briannaRetirementNetWorth)}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div className="mt-6 overflow-x-auto">
-          <table className="w-full text-left text-sm border border-slate-700">
-            <thead className="bg-slate-900/60 text-slate-200">
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 border-b border-slate-700">Post-Retirement Plan</th>
-                <th className="px-4 py-3 border-b border-slate-700">Value</th>
-                <th className="px-4 py-3 border-b border-slate-700">Notes</th>
+                <th className={thCls}>Post-Retirement Plan</th>
+                <th className={thCls}>Value</th>
+                <th className={thCls}>Notes</th>
               </tr>
             </thead>
-            <tbody className="text-slate-300">
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Retirement Duration</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-emerald-400 font-semibold">{retirementYears} years</td>
-                <td className="px-4 py-3 border-b border-slate-700">Until age {globals.lifeExpectancy}</td>
+            <tbody>
+              <tr className={trHover}>
+                <td className={tdCls}>Retirement Duration</td>
+                <td className={`${tdCls} font-semibold text-emerald-600`}>{retirementYears} years</td>
+                <td className={tdCls}>Until age {globals.lifeExpectancy}</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Target Annual Spend</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-slate-100 font-semibold">{formatCur(retirementExpenses.yearlyAmount)}</td>
-                <td className="px-4 py-3 border-b border-slate-700">Fixed annual spending plan</td>
+              <tr className={trHover}>
+                <td className={tdCls}>Target Annual Spend</td>
+                <td className={`${tdCls} font-semibold text-slate-800`}>{formatCur(retirementExpenses.yearlyAmount)}</td>
+                <td className={tdCls}>Fixed annual spending plan</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <div className="bg-slate-800/60 p-8 rounded-2xl shadow-lg border border-slate-700">
-        <h2 className="text-3xl font-bold text-slate-100 mb-2">Monte Carlo Simulation Results</h2>
-        <p className="text-slate-400 mb-6">1,000 randomized market scenarios testing your retirement success rate</p>
+      <div className="bg-white p-6 rounded-lg border border-slate-200">
+        <h2 className="text-base font-semibold text-slate-800 mb-1">Monte Carlo Simulation Results</h2>
+        <p className="text-slate-400 text-xs mb-4">1,000 randomized market scenarios testing your retirement success rate</p>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border border-slate-700">
-            <thead className="bg-slate-900/60 text-slate-200">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 border-b border-slate-700">Strategy</th>
-                <th className="px-4 py-3 border-b border-slate-700">Withdrawal Rate</th>
-                <th className="px-4 py-3 border-b border-slate-700">Success Rate</th>
-                <th className="px-4 py-3 border-b border-slate-700">Notes</th>
+                <th className={thCls}>Strategy</th>
+                <th className={thCls}>Withdrawal Rate</th>
+                <th className={thCls}>Success Rate</th>
+                <th className={thCls}>Notes</th>
               </tr>
             </thead>
-            <tbody className="text-slate-300">
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Conservative</td>
-                <td className="px-4 py-3 border-b border-slate-700">3%</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-emerald-400 font-semibold">{monteCarloConservative.successRate.toFixed(1)}%</td>
-                <td className="px-4 py-3 border-b border-slate-700">Highly safe strategy</td>
+            <tbody>
+              <tr className={trHover}>
+                <td className={tdCls}>Conservative</td>
+                <td className={tdCls}>3%</td>
+                <td className={`${tdCls} font-semibold text-emerald-600`}>{monteCarloConservative.successRate.toFixed(1)}%</td>
+                <td className={tdCls}>Highly safe strategy</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Target</td>
-                <td className="px-4 py-3 border-b border-slate-700">{(globals.withdrawalRate * 100).toFixed(1)}%</td>
-                <td className={`px-4 py-3 border-b border-slate-700 font-semibold ${monteCarloBaseline.successRate > 85 ? 'text-blue-400' : 'text-amber-400'}`}>
+              <tr className={trHover}>
+                <td className={tdCls}>Target</td>
+                <td className={tdCls}>{(globals.withdrawalRate * 100).toFixed(1)}%</td>
+                <td className={`${tdCls} font-semibold ${monteCarloBaseline.successRate > 85 ? 'text-sky-600' : 'text-amber-500'}`}>
                   {monteCarloBaseline.successRate.toFixed(1)}%
                 </td>
-                <td className="px-4 py-3 border-b border-slate-700">Fixed annual spend</td>
+                <td className={tdCls}>Fixed annual spend</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Aggressive</td>
-                <td className="px-4 py-3 border-b border-slate-700">5%</td>
-                <td className={`px-4 py-3 border-b border-slate-700 font-semibold ${monteCarloAggressive.successRate > 70 ? 'text-purple-400' : 'text-red-400'}`}>
+              <tr className={trHover}>
+                <td className={tdCls}>Aggressive</td>
+                <td className={tdCls}>5%</td>
+                <td className={`${tdCls} font-semibold ${monteCarloAggressive.successRate > 70 ? 'text-violet-600' : 'text-red-500'}`}>
                   {monteCarloAggressive.successRate.toFixed(1)}%
                 </td>
-                <td className="px-4 py-3 border-b border-slate-700">Higher risk strategy</td>
+                <td className={tdCls}>Higher risk strategy</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <div className="bg-slate-800/60 p-8 rounded-2xl shadow-lg border border-slate-700">
-        <h2 className="text-2xl font-bold text-slate-100 mb-6">Retirement Framework</h2>
+      <div className="bg-white p-6 rounded-lg border border-slate-200">
+        <h2 className="text-base font-semibold text-slate-800 mb-4">Retirement Framework</h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border border-slate-700">
-            <thead className="bg-slate-900/60 text-slate-200">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 border-b border-slate-700">Metric</th>
-                <th className="px-4 py-3 border-b border-slate-700">Value</th>
+                <th className={thCls}>Metric</th>
+                <th className={thCls}>Value</th>
               </tr>
             </thead>
-            <tbody className="text-slate-300">
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Michael's Retirement Age</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-blue-400 font-semibold">{globals.michaelRetirementAge}</td>
+            <tbody>
+              <tr className={trHover}>
+                <td className={tdCls}>Michael's Retirement Age</td>
+                <td className={`${tdCls} font-semibold text-sky-600`}>{globals.michaelRetirementAge}</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Brianna's Retirement Age</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-purple-400 font-semibold">{globals.briannaRetirementAge}</td>
+              <tr className={trHover}>
+                <td className={tdCls}>Brianna's Retirement Age</td>
+                <td className={`${tdCls} font-semibold text-violet-600`}>{globals.briannaRetirementAge}</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Life Expectancy</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-emerald-400 font-semibold">{globals.lifeExpectancy}</td>
+              <tr className={trHover}>
+                <td className={tdCls}>Life Expectancy</td>
+                <td className={`${tdCls} font-semibold text-emerald-600`}>{globals.lifeExpectancy}</td>
               </tr>
-              <tr className="hover:bg-slate-700/40">
-                <td className="px-4 py-3 border-b border-slate-700">Safe Withdrawal Rate</td>
-                <td className="px-4 py-3 border-b border-slate-700 text-rose-400 font-semibold">{(globals.withdrawalRate * 100).toFixed(1)}%</td>
+              <tr className={trHover}>
+                <td className={tdCls}>Safe Withdrawal Rate</td>
+                <td className={`${tdCls} font-semibold text-rose-500`}>{(globals.withdrawalRate * 100).toFixed(1)}%</td>
               </tr>
             </tbody>
           </table>

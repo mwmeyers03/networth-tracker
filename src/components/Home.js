@@ -4,12 +4,12 @@ import Dashboard from './Dashboard';
 const Home = () => {
   return (
     <div className="space-y-6">
-      <div className="bg-white/80 backdrop-blur-sm p-8 rounded-2xl shadow-lg border border-slate-200/50">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-4">
+      <div className="bg-white p-6 rounded-lg border border-slate-200">
+        <h2 className="text-xl font-semibold text-slate-800 mb-2">
           Financial Dashboard
         </h2>
-        <p className="text-slate-600 max-w-2xl">
-          Welcome to your financial dashboard. Here you can track your net worth, assets, and progress towards financial independence.
+        <p className="text-slate-500 text-sm max-w-2xl">
+          Track your net worth, assets, and progress towards financial independence.
         </p>
       </div>
       <Dashboard />

@@ -10,32 +10,32 @@ const Summary = () => {
   const yearsToRetirement = retirementYear ? retirementYear - new Date().getFullYear() : 'N/A';
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-      <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-slate-200/50 flex items-center">
-        <div className="bg-emerald-100 p-4 rounded-full mr-6">
-          <PiggyBank className="text-emerald-600" size={32} />
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="bg-white p-5 rounded-lg border border-slate-200 flex items-center gap-4">
+        <div className="bg-emerald-50 p-2.5 rounded-lg">
+          <PiggyBank className="text-emerald-500" size={20} />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-slate-700 mb-1">Current Net Worth</h3>
-          <div className="text-4xl font-bold text-emerald-600">{formatCur(currentNetWorth)}</div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Current Net Worth</p>
+          <div className="text-2xl font-bold text-slate-800 mt-0.5">{formatCur(currentNetWorth)}</div>
         </div>
       </div>
-      <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-slate-200/50 flex items-center">
-        <div className="bg-blue-100 p-4 rounded-full mr-6">
-          <TrendingUp className="text-blue-600" size={32} />
+      <div className="bg-white p-5 rounded-lg border border-slate-200 flex items-center gap-4">
+        <div className="bg-sky-50 p-2.5 rounded-lg">
+          <TrendingUp className="text-sky-500" size={20} />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-slate-700 mb-1">Projected at Retirement</h3>
-          <div className="text-4xl font-bold text-blue-600">{formatCur(retirementNetWorth)}</div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Projected at Retirement</p>
+          <div className="text-2xl font-bold text-slate-800 mt-0.5">{formatCur(retirementNetWorth)}</div>
         </div>
       </div>
-      <div className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-slate-200/50 flex items-center">
-        <div className="bg-indigo-100 p-4 rounded-full mr-6">
-          <Target className="text-indigo-600" size={32} />
+      <div className="bg-white p-5 rounded-lg border border-slate-200 flex items-center gap-4">
+        <div className="bg-violet-50 p-2.5 rounded-lg">
+          <Target className="text-violet-500" size={20} />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-slate-700 mb-1">Years to Retirement</h3>
-          <div className='text-4xl font-bold text-indigo-600'>{yearsToRetirement}</div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Years to Retirement</p>
+          <div className="text-2xl font-bold text-slate-800 mt-0.5">{yearsToRetirement}</div>
         </div>
       </div>
     </div>

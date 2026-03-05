@@ -4,68 +4,47 @@ import Dashboard from './components/Dashboard';
 import DataLedger from './components/DataLedger';
 import Retirement from './components/Retirement';
 import Controls from './components/Controls';
-import { BarChart3, Table2, TrendingUp } from 'lucide-react';
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   return (
-    <div className="flex min-h-screen bg-slate-950 overflow-hidden font-sans text-slate-100 flex-col">
-      <header className="bg-slate-900/90 backdrop-blur-lg px-8 py-6 border-b border-slate-800 shadow-lg z-10">
-        <div className="flex flex-col gap-4">
+    <div className="flex min-h-screen bg-slate-50 overflow-hidden font-sans text-slate-900 flex-col">
+      <header className="bg-white px-8 py-4 border-b border-slate-200 z-10">
+        <div className="max-w-7xl mx-auto flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-extrabold tracking-tight">Net Worth</h1>
-              <p className="text-slate-400 text-sm mt-1">FIRE Calculator</p>
-            </div>
-            <div className="flex items-center gap-2 bg-emerald-900/40 px-4 py-2 rounded-full border border-emerald-700/50">
-              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-              <span className="text-xs font-bold text-emerald-300">Engine Active</span>
+              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Net Worth</h1>
+              <p className="text-slate-400 text-xs mt-0.5">FIRE Calculator</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'dashboard'
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
-                  : 'text-slate-300 hover:bg-slate-800/70'
-              }`}
-            >
-              <BarChart3 size={18} />
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('ledger')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'ledger'
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
-                  : 'text-slate-300 hover:bg-slate-800/70'
-              }`}
-            >
-              <Table2 size={18} />
-              Data Ledger
-            </button>
-            <button
-              onClick={() => setActiveTab('retirement')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold transition-all ${
-                activeTab === 'retirement'
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
-                  : 'text-slate-300 hover:bg-slate-800/70'
-              }`}
-            >
-              <TrendingUp size={18} />
-              Retirement
-            </button>
+          <div className="flex gap-6 border-b border-slate-200 -mb-4">
+            {[
+              { id: 'dashboard', label: 'Dashboard' },
+              { id: 'ledger', label: 'Data Ledger' },
+              { id: 'retirement', label: 'Retirement' },
+            ].map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                  activeTab === id
+                    ? 'border-sky-500 text-sky-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </header>
 
-      <section className="bg-slate-900/60 border-b border-slate-800">
+      <section className="bg-white border-b border-slate-200">
         <Controls />
       </section>
 
-      <main className="flex-1 overflow-y-auto p-8 bg-gradient-to-br from-slate-950 via-slate-950 to-slate-900">
+      <main className="flex-1 overflow-y-auto p-8 bg-slate-50">
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'ledger' && <DataLedger />}
         {activeTab === 'retirement' && <Retirement />}
