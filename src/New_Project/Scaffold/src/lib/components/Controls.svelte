@@ -155,7 +155,7 @@
     <button class="reset-btn" on:click={resetToDefaults}>Reset to Defaults</button>
   </div>
   <div class="controls-grid">
-    <article class="control-card">
+    <article class="control-card expenses-card">
       <button class="section-head" on:click={() => toggle('macro')}>
         <span>Macro Environment</span>
         <span>{expanded.macro ? '▴' : '▾'}</span>
@@ -784,19 +784,14 @@
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
 
-  /* Constrain expenses section height very small - max 300px */
-  .controls-grid article:nth-of-type(6) .section-body {
+  /* Constrain only expenses section height */
+  .control-card.expenses-card .section-body {
     max-height: 300px;
     overflow-y: auto;
     overflow-x: hidden;
   }
   
-  .controls-grid article:nth-of-type(6) h4 {
-    margin: 0.3rem 0 0.1rem;
-    font-size: 0.75rem;
-  }
-  
-  .controls-grid article:nth-of-type(6) label {
+  .control-card.expenses-card label {
     gap: 0.2rem;
     margin-bottom: 0.2rem;
   }

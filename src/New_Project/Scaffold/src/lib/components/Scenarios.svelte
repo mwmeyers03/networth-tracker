@@ -67,7 +67,7 @@
     let minNetWorth = Math.min(...projection.map(d => d?.netWorth || 0));
     let maxNetWorth = Math.max(...projection.map(d => d?.netWorth || 0));
 
-    // Calculate success probability (percentage of years where portfolio is positive)
+    // Deterministic funding score: percent of retirement years where net worth stays positive
     const retirementStart = bothRetiredIdx >= 0 ? bothRetiredIdx : 0;
     const retirementYears = projection.slice(retirementStart);
     const positiveYears = retirementYears.filter(d => (d?.netWorth || 0) > 0).length;
@@ -132,7 +132,7 @@
   const exportCSV = () => {
     let csv = 'Scenario Comparison Report\n';
     csv += 'Generated: ' + new Date().toLocaleDateString() + '\n\n';
-    csv += 'Scenario,Portfolio Return,Years to Retirement,Retirement Year,Final Net Worth,Min Net Worth,Success Probability,Failure Year,Ending Balance %,Status\n';
+    csv += 'Scenario,Portfolio Return,Years to Retirement,Retirement Year,Final Net Worth,Min Net Worth,Retirement Years Funded (%),Failure Year,Ending Balance %,Status\n';
     
     csv += `Conservative,${conservativeReturnPct}%,${conservativeMetrics.yearsToRetirement},${conservativeMetrics.retirementYear},${conservativeMetrics.finalNetWorth},${conservativeMetrics.minNetWorth},${conservativeMetrics.successProbability}%,${conservativeMetrics.failureYear},${asPercent(conservativeMetrics.balanceRetentionRate)},${conservativeMetrics.status}\n`;
     csv += `Expected,${expectedReturnPct}%,${expectedMetrics.yearsToRetirement},${expectedMetrics.retirementYear},${expectedMetrics.finalNetWorth},${expectedMetrics.minNetWorth},${expectedMetrics.successProbability}%,${expectedMetrics.failureYear},${asPercent(expectedMetrics.balanceRetentionRate)},${expectedMetrics.status}\n`;
@@ -182,6 +182,16 @@
       {/if}
     </div>
   </div>
+
+  <div class="scenario-guide">
+    <h3>What these scenarios mean</h3>
+    <ul>
+      <li><strong>Conservative:</strong> 60/30/10 allocation. Lower expected return with less stock risk.</li>
+      <li><strong>Expected:</strong> 70/20/10 allocation. Baseline middle-case path.</li>
+      <li><strong>Aggressive:</strong> 80/10/10 allocation. Higher upside potential with larger drawdown risk.</li>
+      <li><strong>Reality check:</strong> This is a single deterministic projection using your current return inputs, not a Monte Carlo probability forecast.</li>
+    </ul>
+  </div>
   
   <div class="scenarios-grid">
     <!-- Conservative Scenario -->
@@ -198,7 +208,7 @@
         </div>
         
         <div class="metric">
-          <span class="label">Success Probability</span>
+          <span class="label">Retirement Years Funded</span>
           <span class="value success-prob">{conservativeMetrics.successProbability}%</span>
         </div>
 
@@ -271,7 +281,7 @@
         </div>
         
         <div class="metric">
-          <span class="label">Success Probability</span>
+          <span class="label">Retirement Years Funded</span>
           <span class="value success-prob">{expectedMetrics.successProbability}%</span>
         </div>
 
@@ -344,7 +354,7 @@
         </div>
         
         <div class="metric">
-          <span class="label">Success Probability</span>
+          <span class="label">Retirement Years Funded</span>
           <span class="value success-prob">{aggressiveMetrics.successProbability}%</span>
         </div>
 
@@ -408,13 +418,14 @@
     <h3>Understanding the Outlook</h3>
     <ul>
       <li><strong>Portfolio Return:</strong> Expected annual return based on allocation and market assumptions</li>
-      <li><strong>Success Probability:</strong> Percentage of retirement years where your portfolio will be positive (100% = safest)</li>
+      <li><strong>Retirement Years Funded:</strong> Share of retirement years where balance stays above zero in this one projection path</li>
       <li><strong>Years to Retirement:</strong> How many years until both reach their retirement age targets</li>
       <li><strong>Retirement Year:</strong> The calendar year you can achieve your retirement goal</li>
       <li><strong>Final Net Worth:</strong> Total wealth at the end of the 42-year projection period</li>
       <li><strong>Min Net Worth:</strong> Lowest point in the portfolio during retirement years (watch for negatives)</li>
       <li><strong>Failure Year:</strong> First year your portfolio would go negative (or "Never" if it stays positive)</li>
       <li><strong>Ending Balance %:</strong> Final portfolio balance as a percent of balance at retirement start</li>
+      <li><strong>Realism tip:</strong> Treat Conservative/Expected/Aggressive as a range. If even Conservative stays positive with no early failure year, your plan is usually more resilient.</li>
       <li><strong>Status:</strong>
         <span style="display: inline-block; color: #10b981;">✓ Sustainable</span> = Plan works through life expectancy,
         <span style="display: inline-block; color: #f59e0b;">⚠ At Risk</span> = Portfolio dips into negatives temporarily,
@@ -501,6 +512,36 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1.5rem;
+  }
+
+  .scenario-guide {
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid #334155;
+    border-radius: 0.75rem;
+    padding: 1.25rem 1.5rem;
+  }
+
+  .scenario-guide h3 {
+    margin: 0 0 0.8rem 0;
+    color: #93c5fd;
+    font-size: 1.05rem;
+  }
+
+  .scenario-guide ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .scenario-guide li {
+    color: #cbd5e1;
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  .scenario-guide strong {
+    color: #f1f5f9;
   }
 
   .scenario-card {
