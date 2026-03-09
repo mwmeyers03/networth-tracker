@@ -251,7 +251,10 @@ export const DataProvider = ({ children }) => {
     const baseMExp = calculateMichaelExpenses();
     const baseBExp = calculateBriannaExpenses();
     const results = [];
-    
+
+    // Track per-year portfolio totals across simulations (retirement phase only)
+    const yearlyPortfolios = {};
+
     const normalRandom = () => {
       const u1 = Math.random();
       const u2 = Math.random();
@@ -365,6 +368,13 @@ export const DataProvider = ({ children }) => {
              roth -= takeGross;
              needed -= netReceived;
           }
+
+          // Record portfolio value for this year if still surviving
+          if (survived) {
+            const total = m401k + b401k + roth + brokerage + savings;
+            if (!yearlyPortfolios[year]) yearlyPortfolios[year] = [];
+            yearlyPortfolios[year].push(Math.max(0, total));
+          }
           
           if (needed > 100) {
              survived = false;
@@ -387,9 +397,54 @@ export const DataProvider = ({ children }) => {
     const successCount = results.filter(r => r.survived).length;
     const successRate = (successCount / numSimulations) * 100;
     const avgFinalYear = results.reduce((a, b) => a + b.finalYear, 0) / numSimulations;
-    
-    return { successRate, successCount, numSimulations, avgFinalYear, allResults: results };
-  }, [calculateMichaelExpenses, calculateBriannaExpenses, globals]);
+
+    // Compute year-by-year percentile bands for the fan chart
+    const percentileData = Object.entries(yearlyPortfolios)
+      .map(([year, values]) => {
+        const sorted = [...values].sort((a, b) => a - b);
+        const n = sorted.length;
+        const pct = (p) => sorted[Math.min(Math.floor(p * n), n - 1)] ?? 0;
+        return {
+          year: parseInt(year),
+          p10: Math.max(0, pct(0.10)),
+          p25: Math.max(0, pct(0.25)),
+          p50: Math.max(0, pct(0.50)),
+          p75: Math.max(0, pct(0.75)),
+          p90: Math.max(0, pct(0.90)),
+        };
+      })
+      .sort((a, b) => a.year - b.year);
+
+    // Compute failure decade distribution
+    const failuresByDecade = {};
+    results.filter(r => !r.survived).forEach(r => {
+      const decade = Math.floor((r.finalYear - 2024) / 10) * 10;
+      failuresByDecade[decade] = (failuresByDecade[decade] || 0) + 1;
+    });
+
+    // Median ending portfolio (from surviving sims)
+    const survivingFinals = results
+      .filter(r => r.survived)
+      .map(r => {
+        const lastYear = 2024 + globals.lifeExpectancy;
+        const vals = yearlyPortfolios[lastYear];
+        return vals ? vals[Math.floor(vals.length / 2)] : 0;
+      });
+    const medianFinalPortfolio = survivingFinals.length > 0
+      ? [...survivingFinals].sort((a, b) => a - b)[Math.floor(survivingFinals.length / 2)]
+      : 0;
+
+    return {
+      successRate,
+      successCount,
+      numSimulations,
+      avgFinalYear,
+      percentileData,
+      failuresByDecade,
+      medianFinalPortfolio,
+      allResults: results,
+    };
+  }, [calculateMichaelExpenses, calculateBriannaExpenses, globals, retirementExpenses]);
 
   const monteCarloBaseline = useMemo(() => runMonteCarloSimulation(1000, null), [runMonteCarloSimulation]);
   const monteCarloConservative = useMemo(() => runMonteCarloSimulation(1000, 0.03), [runMonteCarloSimulation]);
