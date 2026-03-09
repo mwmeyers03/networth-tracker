@@ -1,9 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 
 const DataLedger = () => {
   const { financialData, formatCur, handleCellEdit, overrides } = useData();
   const [editingCell, setEditingCell] = useState({ year: null, field: null, value: '' });
+  const [rowLimit, setRowLimit] = useState(financialData.length);
+
+  // Keep rowLimit in sync when the projection length changes (e.g. life expectancy update),
+  // but only if the user hasn't manually reduced it below the new length.
+  useEffect(() => {
+    setRowLimit(prev => (prev >= financialData.length ? financialData.length : prev));
+  }, [financialData.length]);
 
   const startEdit = (year, field, currentValue) => {
     setEditingCell({ year, field, value: String(Math.round(currentValue)) });
@@ -58,7 +65,7 @@ const DataLedger = () => {
 
   return (
     <div className="max-w-7xl mx-auto pb-6">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-base font-bold text-white">Financial Projection Ledger</h2>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -66,9 +73,23 @@ const DataLedger = () => {
             <span className="text-amber-400">Click a balance cell to override it</span>
           </p>
         </div>
-        <span className="text-[10px] text-slate-500 bg-slate-800 border border-slate-700 rounded px-2 py-1">
-          {financialData.length} rows
-        </span>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 whitespace-nowrap">Show rows:</label>
+          <input
+            type="number"
+            min={1}
+            max={financialData.length}
+            value={rowLimit}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (!isNaN(v) && v >= 1) setRowLimit(Math.min(v, financialData.length));
+            }}
+            className="w-20 px-2 py-1 bg-slate-700 border border-slate-600 text-white text-xs rounded outline-none focus:ring-1 focus:ring-sky-500"
+          />
+          <span className="text-[10px] text-slate-500 bg-slate-800 border border-slate-700 rounded px-2 py-1">
+            {Math.min(rowLimit, financialData.length)} / {financialData.length}
+          </span>
+        </div>
       </div>
       <div className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -93,7 +114,7 @@ const DataLedger = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
-              {financialData.map((row) => (
+              {financialData.slice(0, rowLimit).map((row) => (
                 <tr
                   key={row.year}
                   className={`transition-colors ${

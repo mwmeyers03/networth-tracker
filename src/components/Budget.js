@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip, ResponsiveContainer, Legend,
@@ -109,15 +109,41 @@ const SavingsGauge = ({ rate }) => {
 let _nextId = DEFAULT_CATEGORIES.length + 1;
 const nextId = () => ++_nextId;
 
+// ── localStorage helpers (same prefix as DataContext) ────────────────────────
+const LS_PREFIX = 'nwt_';
+const loadLS = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const saveLS = (key, value) => {
+  try {
+    localStorage.setItem(LS_PREFIX + key, JSON.stringify(value));
+  } catch { /* quota exceeded or private browsing — safe to ignore */ }
+};
+
 // ── Main Budget Component ───────────────────────────────────────────────────
 const Budget = () => {
   const { formatCur, michaelExpenses, briannaExpenses } = useData();
 
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState(() => {
+    const saved = loadLS('budget_categories', DEFAULT_CATEGORIES);
+    // Ensure _nextId stays above the highest saved id to avoid collisions
+    const maxId = saved.reduce((m, c) => Math.max(m, c.id), DEFAULT_CATEGORIES.length);
+    _nextId = Math.max(_nextId, maxId);
+    return saved;
+  });
   const [newName, setNewName] = useState('');
   const [newBudget, setNewBudget] = useState('');
   const [activeView, setActiveView] = useState('overview'); // 'overview' | 'breakdown' | 'projection'
-  const [monthlyIncome, setMonthlyIncome] = useState(8000);
+  const [monthlyIncome, setMonthlyIncome] = useState(() => loadLS('budget_monthly_income', 8000));
+
+  // Persist budget state to localStorage
+  useEffect(() => { saveLS('budget_categories', categories); }, [categories]);
+  useEffect(() => { saveLS('budget_monthly_income', monthlyIncome); }, [monthlyIncome]);
 
   // Note: syncedBudget shows the DataContext monthly total for informational reference
   const syncedExpenses = useMemo(() => {
