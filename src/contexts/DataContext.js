@@ -1,4 +1,4 @@
-import React, { createContext, useState, useMemo, useContext, useCallback } from 'react';
+import React, { createContext, useState, useMemo, useContext, useCallback, useEffect } from 'react';
 
 const DataContext = createContext();
 
@@ -6,47 +6,80 @@ export const START_YEAR = 2025;
 
 export const useData = () => useContext(DataContext);
 
+// ── localStorage helpers ─────────────────────────────────────────────────────
+const LS_PREFIX = 'nwt_';
+
+const loadLS = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const saveLS = (key, value) => {
+  try {
+    localStorage.setItem(LS_PREFIX + key, JSON.stringify(value));
+  } catch { /* quota exceeded or private browsing */ }
+};
+
+// ── Default state values ─────────────────────────────────────────────────────
+const DEFAULT_GLOBALS = {
+  marketReturn: 0.07,
+  marketReturnStdDev: 0.15,
+  inflationRate: 0.025,
+  michaelSalaryGrowth: 0.03,
+  briannaSalaryGrowth: 0.03,
+  michael401kRate: 0.15,
+  michael401kMatch: 0.06,
+  brianna401kRate: 0.08,
+  rothYearlyContrib: 7500,
+  brokerageYearlyContrib: 12000,
+  michaelRetirementAge: 50,
+  briannaRetirementAge: 50,
+  lifeExpectancy: 100,
+  withdrawalRate: 0.04,
+};
+
+const DEFAULT_MICHAEL_EXPENSES = {
+  insurance: 220,
+  gas: 252,
+  food: 200,
+  dates: 160,
+  rent: 600,
+  vacationFund: 200,
+};
+
+const DEFAULT_BRIANNA_EXPENSES = {
+  insurance: 350,
+  gas: 252,
+  food: 200,
+  car: 600,
+  rent: 150,
+  vacationFund: 200,
+};
+
+// ── Starting account balances for the first projection year ──────────────────
+const INITIAL_M401K       = 32980;
+const INITIAL_B401K       = 2800;
+const INITIAL_ROTH        = 45475;
+const INITIAL_BROKERAGE   = 130540;
+const INITIAL_SAVINGS     = 10848;
+
 export const DataProvider = ({ children }) => {
-  const [globals, setGlobals] = useState({
-    marketReturn: 0.07,
-    marketReturnStdDev: 0.15,
-    inflationRate: 0.025,
-    michaelSalaryGrowth: 0.03,
-    briannaSalaryGrowth: 0.03,
-    michael401kRate: 0.15,
-    michael401kMatch: 0.06,
-    brianna401kRate: 0.08,
-    rothYearlyContrib: 7500,
-    brokerageYearlyContrib: 12000,
-    michaelRetirementAge: 50,
-    briannaRetirementAge: 50,
-    lifeExpectancy: 100,
-    withdrawalRate: 0.04,
-  });
+  const [globals, setGlobals] = useState(() => loadLS('globals', DEFAULT_GLOBALS));
+  const [overrides, setOverrides] = useState(() => loadLS('overrides', {}));
+  const [michaelExpenses, setMichaelExpenses] = useState(() => loadLS('michaelExpenses', DEFAULT_MICHAEL_EXPENSES));
+  const [briannaExpenses, setBriannaExpenses] = useState(() => loadLS('briannaExpenses', DEFAULT_BRIANNA_EXPENSES));
+  const [retirementExpenses, setRetirementExpenses] = useState(() => loadLS('retirementExpenses', { yearlyAmount: 80000 }));
 
-  const [overrides, setOverrides] = useState({});
-
-  const [michaelExpenses, setMichaelExpenses] = useState({
-    insurance: 220,
-    gas: 252,
-    food: 200,
-    dates: 160,
-    rent: 600,
-    vacationFund: 200,
-  });
-
-  const [briannaExpenses, setBriannaExpenses] = useState({
-    insurance: 350,
-    gas: 252,
-    food: 200,
-    car: 600,
-    rent: 150,
-    vacationFund: 200,
-  });
-
-  const [retirementExpenses, setRetirementExpenses] = useState({
-    yearlyAmount: 80000,
-  });
+  // Persist every state slice to localStorage whenever it changes
+  useEffect(() => { saveLS('globals', globals); }, [globals]);
+  useEffect(() => { saveLS('overrides', overrides); }, [overrides]);
+  useEffect(() => { saveLS('michaelExpenses', michaelExpenses); }, [michaelExpenses]);
+  useEffect(() => { saveLS('briannaExpenses', briannaExpenses); }, [briannaExpenses]);
+  useEffect(() => { saveLS('retirementExpenses', retirementExpenses); }, [retirementExpenses]);
 
   const handleGlobalChange = (e) => {
     const { name, value } = e.target;
@@ -145,26 +178,19 @@ export const DataProvider = ({ children }) => {
         bExp = o.bExp ?? (year === START_YEAR ? baseBExp : (prev?.bExp || baseBExp) * (1 + globals.inflationRate));
         yearlyExpenses = (mExp + bExp) * 12;
       }
-      
-      let m401kBal, b401kBal;
-      if (o.total401kBal !== undefined) {
-        // Split the combined override proportionally to preserve the individual account ratio
-        const prevTotal = (prev?.m401kBal || 0) + (prev?.b401kBal || 0);
-        const mRatio = prevTotal > 0 ? (prev?.m401kBal || 0) / prevTotal : 32980 / (32980 + 2800);
-        m401kBal = o.total401kBal * mRatio;
-        b401kBal = o.total401kBal * (1 - mRatio);
-      } else {
-        m401kBal = o.m401kBal ?? (year === START_YEAR ? 32980 : prev?.m401kBal || 0);
-        b401kBal = o.b401kBal ?? (year === START_YEAR ? 2800 : prev?.b401kBal || 0);
-      }
-      let rothBal = o.rothBal ?? (year === START_YEAR ? 45475 : prev?.rothBal || 0);
-      let brokerageBal = o.brokerageBal ?? (year === START_YEAR ? 130540 : prev?.brokerageBal || 0);
-      let savingsBal = o.savingsBal ?? (year === START_YEAR ? 10848 : prev?.savingsBal || 0);
-      
-      m401kBal *= (1 + globals.marketReturn);
-      b401kBal *= (1 + globals.marketReturn);
-      rothBal *= (1 + globals.marketReturn);
-      brokerageBal *= (1 + globals.marketReturn);
+
+      // ── Get initial balances from the PREVIOUS year's final values ──────────
+      // Fix: m401kBal and b401kBal are now stored individually in `current`, so
+      // prev.m401kBal / prev.b401kBal correctly carries the balance forward.
+      const m401kInitial = year === START_YEAR ? INITIAL_M401K     : (prev?.m401kBal ?? 0);
+      const b401kInitial = year === START_YEAR ? INITIAL_B401K     : (prev?.b401kBal ?? 0);
+
+      // Apply market returns first
+      let m401kBal    = m401kInitial * (1 + globals.marketReturn);
+      let b401kBal    = b401kInitial * (1 + globals.marketReturn);
+      let rothBal     = (year === START_YEAR ? INITIAL_ROTH      : (prev?.rothBal      ?? 0)) * (1 + globals.marketReturn);
+      let brokerageBal= (year === START_YEAR ? INITIAL_BROKERAGE : (prev?.brokerageBal ?? 0)) * (1 + globals.marketReturn);
+      let savingsBal  =  year === START_YEAR ? INITIAL_SAVINGS   : (prev?.savingsBal   ?? 0);
       
       let withdrawalAmount = 0;
       let liquidityGap = 0;
@@ -231,7 +257,20 @@ export const DataProvider = ({ children }) => {
       b401kBal = Math.max(0, b401kBal);
       rothBal = Math.max(0, rothBal);
       brokerageBal = Math.max(0, brokerageBal);
-      savingsBal = Math.max(0, savingsBal);
+
+      // ── Apply overrides as FINAL values (after returns & contributions) ─────
+      // Fix: overrides now represent the displayed ending balance, not an initial
+      // balance. This prevents the ~$20-30K inflation that occurred when a user
+      // clicked a cell and clicked away without changing anything.
+      if (o.total401kBal !== undefined) {
+        const totalInit = m401kInitial + b401kInitial;
+        const mRatio = totalInit > 0 ? m401kInitial / totalInit : INITIAL_M401K / (INITIAL_M401K + INITIAL_B401K);
+        m401kBal = Math.max(0, o.total401kBal) * mRatio;
+        b401kBal = Math.max(0, o.total401kBal) * (1 - mRatio);
+      }
+      if (o.rothBal      !== undefined) rothBal      = Math.max(0, o.rothBal);
+      if (o.brokerageBal !== undefined) brokerageBal = Math.max(0, o.brokerageBal);
+      if (o.savingsBal   !== undefined) savingsBal   = o.savingsBal; // allow negative (debt)
 
       const current = { 
         year, 
@@ -243,6 +282,9 @@ export const DataProvider = ({ children }) => {
         mExp,
         bExp,
         combinedExp: yearlyExpenses,
+        // Store individual 401k balances so the next iteration can read them via prev
+        m401kBal,
+        b401kBal,
         total401k: m401kBal + b401kBal, 
         rothBal, 
         brokerageBal, 
@@ -273,7 +315,7 @@ export const DataProvider = ({ children }) => {
     };
     
     for (let sim = 0; sim < numSimulations; sim++) {
-      let m401k = 32980, b401k = 2800, roth = 45475, brokerage = 130540, savings = 10848;
+      let m401k = INITIAL_M401K, b401k = INITIAL_B401K, roth = INITIAL_ROTH, brokerage = INITIAL_BROKERAGE, savings = INITIAL_SAVINGS;
       let mSal = 81700;
       let bSal = 35000;
       let survived = true;

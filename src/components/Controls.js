@@ -369,12 +369,26 @@ const Controls = ({ onClose }) => {
       </div>
 
       {onClose && (
-        <button
-          onClick={onClose}
-          className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-sm transition mt-2"
-        >
-          Done
-        </button>
+        <div className="flex flex-col gap-2 mt-2">
+          <button
+            onClick={onClose}
+            className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-sm transition"
+          >
+            Done
+          </button>
+          <button
+            onClick={() => {
+              // Remove all keys that belong to this app (nwt_ prefix)
+              Object.keys(localStorage)
+                .filter(k => k.startsWith('nwt_'))
+                .forEach(k => localStorage.removeItem(k));
+              window.location.reload();
+            }}
+            className="w-full py-2 rounded-xl bg-transparent border border-slate-700 hover:border-rose-500/60 text-slate-500 hover:text-rose-400 font-semibold text-xs transition"
+          >
+            Reset all data to defaults
+          </button>
+        </div>
       )}
     </div>
   );
