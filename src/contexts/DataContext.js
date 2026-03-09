@@ -2,6 +2,8 @@ import React, { createContext, useState, useMemo, useContext, useCallback } from
 
 const DataContext = createContext();
 
+export const START_YEAR = 2025;
+
 export const useData = () => useContext(DataContext);
 
 export const DataProvider = ({ children }) => {
@@ -121,7 +123,7 @@ export const DataProvider = ({ children }) => {
     const baseMExp = calculateMichaelExpenses();
     const baseBExp = calculateBriannaExpenses();
 
-    for (let year = 2024; year <= 2065; year++) {
+    for (let year = START_YEAR; year <= START_YEAR + globals.lifeExpectancy; year++) {
       const o = overrides[year] || {};
       const michaelAge = 22 + (year - 2024);
       const briannaAge = 21 + (year - 2024);
@@ -130,8 +132,8 @@ export const DataProvider = ({ children }) => {
       const briannaRetired = briannaAge >= globals.briannaRetirementAge;
       const bothRetired = michaelRetired && briannaRetired;
       
-      const mSalary = o.mSalary ?? (michaelRetired ? 0 : (year === 2024 ? 81700 : (prev?.mSalary || 81700) * (1 + globals.michaelSalaryGrowth)));
-      const bSalary = o.bSalary ?? (briannaRetired ? 0 : (year === 2024 ? 35000 : (prev?.bSalary || 35000) * (1 + globals.briannaSalaryGrowth)));
+      const mSalary = o.mSalary ?? (michaelRetired ? 0 : (year === START_YEAR ? 81700 : (prev?.mSalary || 81700) * (1 + globals.michaelSalaryGrowth)));
+      const bSalary = o.bSalary ?? (briannaRetired ? 0 : (year === START_YEAR ? 35000 : (prev?.bSalary || 35000) * (1 + globals.briannaSalaryGrowth)));
       
       let mExp, bExp, yearlyExpenses;
       if (bothRetired) {
@@ -139,16 +141,25 @@ export const DataProvider = ({ children }) => {
         mExp = 0; 
         bExp = 0;
       } else {
-        mExp = o.mExp ?? (year === 2024 ? baseMExp : (prev?.mExp || baseMExp) * (1 + globals.inflationRate));
-        bExp = o.bExp ?? (year === 2024 ? baseBExp : (prev?.bExp || baseBExp) * (1 + globals.inflationRate));
+        mExp = o.mExp ?? (year === START_YEAR ? baseMExp : (prev?.mExp || baseMExp) * (1 + globals.inflationRate));
+        bExp = o.bExp ?? (year === START_YEAR ? baseBExp : (prev?.bExp || baseBExp) * (1 + globals.inflationRate));
         yearlyExpenses = (mExp + bExp) * 12;
       }
       
-      let m401kBal = o.m401kBal ?? (year === 2024 ? 32980 : prev?.m401kBal || 0);
-      let b401kBal = o.b401kBal ?? (year === 2024 ? 2800 : prev?.b401kBal || 0);
-      let rothBal = o.rothBal ?? (year === 2024 ? 45475 : prev?.rothBal || 0);
-      let brokerageBal = o.brokerageBal ?? (year === 2024 ? 130540 : prev?.brokerageBal || 0);
-      let savingsBal = o.savingsBal ?? (year === 2024 ? 10848 : prev?.savingsBal || 0);
+      let m401kBal, b401kBal;
+      if (o.total401kBal !== undefined) {
+        // Split the combined override proportionally to preserve the individual account ratio
+        const prevTotal = (prev?.m401kBal || 0) + (prev?.b401kBal || 0);
+        const mRatio = prevTotal > 0 ? (prev?.m401kBal || 0) / prevTotal : 32980 / (32980 + 2800);
+        m401kBal = o.total401kBal * mRatio;
+        b401kBal = o.total401kBal * (1 - mRatio);
+      } else {
+        m401kBal = o.m401kBal ?? (year === START_YEAR ? 32980 : prev?.m401kBal || 0);
+        b401kBal = o.b401kBal ?? (year === START_YEAR ? 2800 : prev?.b401kBal || 0);
+      }
+      let rothBal = o.rothBal ?? (year === START_YEAR ? 45475 : prev?.rothBal || 0);
+      let brokerageBal = o.brokerageBal ?? (year === START_YEAR ? 130540 : prev?.brokerageBal || 0);
+      let savingsBal = o.savingsBal ?? (year === START_YEAR ? 10848 : prev?.savingsBal || 0);
       
       m401kBal *= (1 + globals.marketReturn);
       b401kBal *= (1 + globals.marketReturn);
@@ -270,7 +281,7 @@ export const DataProvider = ({ children }) => {
       let retirementYear = null;
       let initialRetirementExpense = 0;
       
-      for (let year = 2024; year <= 2024 + globals.lifeExpectancy; year++) {
+      for (let year = START_YEAR; year <= START_YEAR + globals.lifeExpectancy; year++) {
         const michaelAge = 22 + (year - 2024);
         const briannaAge = 21 + (year - 2024);
         const michaelRetired = michaelAge >= globals.michaelRetirementAge;
@@ -294,14 +305,14 @@ export const DataProvider = ({ children }) => {
             const m401kAdded = (mSal * globals.michael401kRate) + (mSal * globals.michael401kMatch);
             m401k += m401kAdded;
             const mTakeHome = calculateFederalTax(mSal, m401kAdded);
-            const mSavings = mTakeHome - (baseMExp * 12 * (1 + globals.inflationRate) ** (year - 2024)) - (globals.rothYearlyContrib / 2) - (globals.brokerageYearlyContrib / 2);
+            const mSavings = mTakeHome - (baseMExp * 12 * (1 + globals.inflationRate) ** (year - START_YEAR)) - (globals.rothYearlyContrib / 2) - (globals.brokerageYearlyContrib / 2);
             savings += mSavings;
           }
           if (!briannaRetired) {
             const b401kAdded = bSal * globals.brianna401kRate;
             b401k += b401kAdded;
             const bTakeHome = calculateFederalTax(bSal, b401kAdded);
-            const bSavings = bTakeHome - (baseBExp * 12 * (1 + globals.inflationRate) ** (year - 2024)) - (globals.brokerageYearlyContrib / 2);
+            const bSavings = bTakeHome - (baseBExp * 12 * (1 + globals.inflationRate) ** (year - START_YEAR)) - (globals.brokerageYearlyContrib / 2);
             savings += bSavings;
           }
 
@@ -323,7 +334,7 @@ export const DataProvider = ({ children }) => {
           if (withdrawalRateOverride !== null) {
              currentYearExpense = initialRetirementExpense * (1 + globals.inflationRate) ** (year - retirementYear);
           } else {
-             currentYearExpense = retirementExpenses.yearlyAmount * (1 + globals.inflationRate) ** (year - 2024);
+             currentYearExpense = retirementExpenses.yearlyAmount * (1 + globals.inflationRate) ** (year - START_YEAR);
           }
 
           let needed = currentYearExpense;
@@ -391,7 +402,7 @@ export const DataProvider = ({ children }) => {
         
       }
       
-      results.push({ survived, finalYear: endYears[0] || 2024 + globals.lifeExpectancy });
+      results.push({ survived, finalYear: endYears[0] || START_YEAR + globals.lifeExpectancy });
     }
     
     const successCount = results.filter(r => r.survived).length;
@@ -418,7 +429,7 @@ export const DataProvider = ({ children }) => {
     // Compute failure decade distribution
     const failuresByDecade = {};
     results.filter(r => !r.survived).forEach(r => {
-      const decade = Math.floor((r.finalYear - 2024) / 10) * 10;
+      const decade = Math.floor((r.finalYear - START_YEAR) / 10) * 10;
       failuresByDecade[decade] = (failuresByDecade[decade] || 0) + 1;
     });
 
@@ -426,7 +437,7 @@ export const DataProvider = ({ children }) => {
     const survivingFinals = results
       .filter(r => r.survived)
       .map(r => {
-        const lastYear = 2024 + globals.lifeExpectancy;
+        const lastYear = START_YEAR + globals.lifeExpectancy;
         const vals = yearlyPortfolios[lastYear];
         return vals ? vals[Math.floor(vals.length / 2)] : 0;
       });
