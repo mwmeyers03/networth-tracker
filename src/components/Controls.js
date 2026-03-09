@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../contexts/DataContext';
 import { TrendingUp, PiggyBank, Heart, ChevronDown, ChevronUp } from 'lucide-react';
+import InfoTooltip from './Tooltip';
 
 const Controls = ({ onClose }) => {
   const {
@@ -27,18 +28,13 @@ const Controls = ({ onClose }) => {
   const [briannaNewCategory, setBriannaNewCategory] = useState('');
 
   const toggleSection = (section) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }));
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   const handlePercentageChange = (e) => {
     const { name, value } = e.target;
     const decimalValue = parseFloat(value) / 100 || 0;
-    handleGlobalChange({
-      target: { name, value: decimalValue.toString() }
-    });
+    handleGlobalChange({ target: { name, value: decimalValue.toString() } });
   };
 
   const SectionHeader = ({ title, icon: Icon, section }) => (
@@ -61,9 +57,12 @@ const Controls = ({ onClose }) => {
     </button>
   );
 
-  const InputField = ({ label, name, value, onChange, type = 'number', step = '0.01', isPercentage = false }) => (
+  const InputField = ({ label, name, value, onChange, type = 'number', step = '0.01', isPercentage = false, tooltip }) => (
     <div>
-      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">{label}</label>
+      <div className="flex items-center gap-1 mb-1">
+        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{label}</label>
+        {tooltip && <InfoTooltip text={tooltip} side="right" />}
+      </div>
       <div className="relative">
         <input
           type={type}
@@ -96,9 +95,30 @@ const Controls = ({ onClose }) => {
         <SectionHeader title="Macro Environment" icon={TrendingUp} section="macro" />
         {expandedSections.macro && (
           <div className="p-4 space-y-3 bg-slate-900/40">
-            <InputField label="Market Return" name="marketReturn" value={globals.marketReturn} onChange={handleGlobalChange} isPercentage />
-            <InputField label="Market Volatility (Std Dev)" name="marketReturnStdDev" value={globals.marketReturnStdDev} onChange={handleGlobalChange} isPercentage />
-            <InputField label="Inflation Rate" name="inflationRate" value={globals.inflationRate} onChange={handleGlobalChange} isPercentage />
+            <InputField
+              label="Market Return"
+              name="marketReturn"
+              value={globals.marketReturn}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Expected average annual nominal return for the overall portfolio. Historical S&P 500 average is ~10% nominal (~7% real). Lower values produce more conservative projections."
+            />
+            <InputField
+              label="Market Volatility (Std Dev)"
+              name="marketReturnStdDev"
+              value={globals.marketReturnStdDev}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Standard deviation of annual market returns used in the Monte Carlo simulation. Higher values model more volatile markets. The S&P 500 has historically had a std dev of ~15-18%."
+            />
+            <InputField
+              label="Inflation Rate"
+              name="inflationRate"
+              value={globals.inflationRate}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Expected average annual inflation rate. Affects how expenses grow over time. The Fed targets 2%; long-term US average is ~3%."
+            />
           </div>
         )}
       </div>
@@ -108,8 +128,22 @@ const Controls = ({ onClose }) => {
         <SectionHeader title="Salary Growth" icon={TrendingUp} section="salary" />
         {expandedSections.salary && (
           <div className="p-4 space-y-3 bg-slate-900/40">
-            <InputField label="Michael Annual Growth" name="michaelSalaryGrowth" value={globals.michaelSalaryGrowth} onChange={handleGlobalChange} isPercentage />
-            <InputField label="Brianna Annual Growth" name="briannaSalaryGrowth" value={globals.briannaSalaryGrowth} onChange={handleGlobalChange} isPercentage />
+            <InputField
+              label="Michael Annual Growth"
+              name="michaelSalaryGrowth"
+              value={globals.michaelSalaryGrowth}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Expected annual raise percentage for Michael. Applies compound growth each year until retirement. US average is 3–4% annually."
+            />
+            <InputField
+              label="Brianna Annual Growth"
+              name="briannaSalaryGrowth"
+              value={globals.briannaSalaryGrowth}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Expected annual raise percentage for Brianna. Applies compound growth each year until retirement."
+            />
           </div>
         )}
       </div>
@@ -119,11 +153,46 @@ const Controls = ({ onClose }) => {
         <SectionHeader title="Core Contributions" icon={PiggyBank} section="contributions" />
         {expandedSections.contributions && (
           <div className="p-4 space-y-3 bg-slate-900/40">
-            <InputField label="Michael 401K Rate" name="michael401kRate" value={globals.michael401kRate} onChange={handleGlobalChange} isPercentage />
-            <InputField label="Michael 401K Match" name="michael401kMatch" value={globals.michael401kMatch} onChange={handleGlobalChange} isPercentage />
-            <InputField label="Brianna 401K Rate" name="brianna401kRate" value={globals.brianna401kRate} onChange={handleGlobalChange} isPercentage />
-            <InputField label="Roth IRA Yearly ($)" name="rothYearlyContrib" value={globals.rothYearlyContrib} onChange={handleGlobalChange} type="number" />
-            <InputField label="Brokerage Yearly ($)" name="brokerageYearlyContrib" value={globals.brokerageYearlyContrib} onChange={handleGlobalChange} type="number" />
+            <InputField
+              label="Michael 401K Rate"
+              name="michael401kRate"
+              value={globals.michael401kRate}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Percentage of Michael's gross salary contributed to his 401K pre-tax each year. The 2024 IRS limit is $23,000 ($30,500 if 50+)."
+            />
+            <InputField
+              label="Michael 401K Match"
+              name="michael401kMatch"
+              value={globals.michael401kMatch}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Employer match percentage added on top of Michael's own 401K contribution. Free money — always contribute at least enough to capture the full match."
+            />
+            <InputField
+              label="Brianna 401K Rate"
+              name="brianna401kRate"
+              value={globals.brianna401kRate}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="Percentage of Brianna's gross salary contributed to her 401K pre-tax each year."
+            />
+            <InputField
+              label="Roth IRA Yearly ($)"
+              name="rothYearlyContrib"
+              value={globals.rothYearlyContrib}
+              onChange={handleGlobalChange}
+              type="number"
+              tooltip="Combined annual Roth IRA contribution across both partners. 2024 IRS limit is $7,000/person ($8,000 if 50+). Contributions are post-tax; growth and qualified withdrawals are tax-free."
+            />
+            <InputField
+              label="Brokerage Yearly ($)"
+              name="brokerageYearlyContrib"
+              value={globals.brokerageYearlyContrib}
+              onChange={handleGlobalChange}
+              type="number"
+              tooltip="Annual amount contributed to a taxable brokerage account. No contribution limits, but gains are subject to capital gains tax. Useful for early retirement before 59½."
+            />
           </div>
         )}
       </div>
@@ -135,7 +204,13 @@ const Controls = ({ onClose }) => {
           <div className="p-4 space-y-5 bg-slate-900/40">
             {/* Michael */}
             <div>
-              <h4 className="text-[10px] font-bold text-sky-400 uppercase tracking-wider mb-2">Michael's Monthly</h4>
+              <div className="flex items-center gap-1 mb-2">
+                <h4 className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Michael's Monthly</h4>
+                <InfoTooltip
+                  text="Michael's monthly recurring expenses. These grow with inflation over time. They go to $0 at retirement when the combined retirement spend takes over."
+                  side="right"
+                />
+              </div>
               <div className="space-y-2">
                 {Object.entries(michaelExpenses).map(([key, value]) => (
                   <div key={key} className="flex items-center justify-between gap-3">
@@ -176,7 +251,13 @@ const Controls = ({ onClose }) => {
             </div>
             {/* Brianna */}
             <div>
-              <h4 className="text-[10px] font-bold text-violet-400 uppercase tracking-wider mb-2">Brianna's Monthly</h4>
+              <div className="flex items-center gap-1 mb-2">
+                <h4 className="text-[10px] font-bold text-violet-400 uppercase tracking-wider">Brianna's Monthly</h4>
+                <InfoTooltip
+                  text="Brianna's monthly recurring expenses. These grow with inflation over time and stop at retirement."
+                  side="right"
+                />
+              </div>
               <div className="space-y-2">
                 {Object.entries(briannaExpenses).map(([key, value]) => (
                   <div key={key} className="flex items-center justify-between gap-3">
@@ -225,12 +306,64 @@ const Controls = ({ onClose }) => {
         {expandedSections.retirement && (
           <div className="p-4 space-y-3 bg-slate-900/40">
             <div className="grid grid-cols-2 gap-3">
-              <InputField label="Michael Retirement Age" name="michaelRetirementAge" value={globals.michaelRetirementAge} onChange={handleGlobalChange} type="number" />
-              <InputField label="Brianna Retirement Age" name="briannaRetirementAge" value={globals.briannaRetirementAge} onChange={handleGlobalChange} type="number" />
+              <InputField
+                label="Michael Retirement Age"
+                name="michaelRetirementAge"
+                value={globals.michaelRetirementAge}
+                onChange={handleGlobalChange}
+                type="number"
+                tooltip="The age at which Michael stops working. All 401K and salary contributions stop. After both partners are retired, the portfolio shifts to withdrawal mode."
+              />
+              <InputField
+                label="Brianna Retirement Age"
+                name="briannaRetirementAge"
+                value={globals.briannaRetirementAge}
+                onChange={handleGlobalChange}
+                type="number"
+                tooltip="The age at which Brianna stops working. Both partners must be retired before withdrawals begin from the retirement portfolio."
+              />
             </div>
-            <InputField label="Life Expectancy" name="lifeExpectancy" value={globals.lifeExpectancy} onChange={handleGlobalChange} type="number" />
-            <InputField label="Annual Retirement Spend ($)" name="retirementYearlyExp" value={retirementExpenses.yearlyAmount} onChange={(e) => handleRetirementExpenseChange(e.target.value)} type="number" />
-            <InputField label="Safe Withdrawal Rate" name="withdrawalRate" value={globals.withdrawalRate} onChange={handleGlobalChange} isPercentage />
+            <InputField
+              label="Life Expectancy"
+              name="lifeExpectancy"
+              value={globals.lifeExpectancy}
+              onChange={handleGlobalChange}
+              type="number"
+              tooltip="The planning horizon for the retirement phase. The Monte Carlo simulation runs until this age to test portfolio survivability. A longer life expectancy is more conservative."
+            />
+            <InputField
+              label="Annual Retirement Spend ($)"
+              name="retirementYearlyExp"
+              value={retirementExpenses.yearlyAmount}
+              onChange={(e) => handleRetirementExpenseChange(e.target.value)}
+              type="number"
+              tooltip="Total annual household spending during retirement (today's dollars). This amount grows with inflation each year. Your FIRE number = this ÷ withdrawal rate."
+            />
+            <InputField
+              label="Safe Withdrawal Rate"
+              name="withdrawalRate"
+              value={globals.withdrawalRate}
+              onChange={handleGlobalChange}
+              isPercentage
+              tooltip="The percentage of your portfolio withdrawn each year in retirement. The classic '4% rule' comes from the Trinity Study showing ~95% success over 30 years. Lower rates improve survivability."
+            />
+            {/* FIRE number display */}
+            <div className="bg-slate-800 rounded-lg p-3 border border-slate-700/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-400">Your FIRE Number</span>
+                  <InfoTooltip
+                    text="The total portfolio value needed to sustain your annual retirement spending indefinitely at your chosen withdrawal rate. FIRE Number = Annual Spend ÷ Withdrawal Rate."
+                    side="top"
+                  />
+                </div>
+                <span className="text-base font-bold text-emerald-400">
+                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
+                    retirementExpenses.yearlyAmount / (globals.withdrawalRate > 0 ? globals.withdrawalRate : 0.04)
+                  )}
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>

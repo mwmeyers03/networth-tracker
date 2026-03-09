@@ -3,13 +3,15 @@ import { DataProvider } from './contexts/DataContext';
 import Dashboard from './components/Dashboard';
 import DataLedger from './components/DataLedger';
 import Retirement from './components/Retirement';
+import Budget from './components/Budget';
 import Controls from './components/Controls';
-import { Settings, X, LayoutDashboard, Table2, TrendingUp } from 'lucide-react';
+import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'ledger', label: 'Ledger', icon: Table2 },
   { id: 'retirement', label: 'Retirement', icon: TrendingUp },
+  { id: 'budget', label: 'Budget', icon: Wallet },
 ];
 
 function AppContent() {
@@ -64,6 +66,7 @@ function AppContent() {
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'ledger' && <DataLedger />}
         {activeTab === 'retirement' && <Retirement />}
+        {activeTab === 'budget' && <Budget />}
       </main>
 
       {/* ── Settings Drawer (right side on desktop, full-screen on mobile) ── */}
