@@ -1,7 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import { TrendingUp, PiggyBank, Heart, ChevronDown, ChevronUp } from 'lucide-react';
 import InfoTooltip from './Tooltip';
+
+// ── InputField is defined outside Controls so it mounts/unmounts stably
+// and local state is preserved while typing (prevents expensive re-renders on
+// every keystroke when the user is editing a percentage or dollar field).
+const InputField = ({ label, name, value, onChange, type = 'number', step = '0.01', isPercentage = false, tooltip }) => {
+  const toDisplay = (v) => isPercentage ? (parseFloat(v) * 100).toFixed(2) : v;
+  const [localValue, setLocalValue] = useState(() => toDisplay(value));
+
+  // Keep local display in sync when the external value changes (e.g. reset)
+  useEffect(() => {
+    setLocalValue(toDisplay(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, isPercentage]);
+
+  const handleLocalChange = (e) => {
+    setLocalValue(e.target.value);
+  };
+
+  const commit = () => {
+    if (isPercentage) {
+      const decimal = parseFloat(localValue) / 100 || 0;
+      onChange({ target: { name, value: decimal.toString() } });
+    } else {
+      onChange({ target: { name, value: localValue } });
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 mb-1">
+        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{label}</label>
+        {tooltip && <InfoTooltip text={tooltip} side="right" />}
+      </div>
+      <div className="relative">
+        <input
+          type={type}
+          step={step}
+          name={name}
+          value={localValue}
+          onChange={handleLocalChange}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); } }}
+          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-500 rounded-lg focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 outline-none transition text-sm"
+        />
+        {isPercentage && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const Controls = ({ onClose }) => {
   const {
@@ -19,7 +70,7 @@ const Controls = ({ onClose }) => {
 
   const [expandedSections, setExpandedSections] = useState({
     macro: true,
-    salary: false,
+    salary: true,
     contributions: false,
     expenses: false,
     retirement: true,
@@ -29,12 +80,6 @@ const Controls = ({ onClose }) => {
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  const handlePercentageChange = (e) => {
-    const { name, value } = e.target;
-    const decimalValue = parseFloat(value) / 100 || 0;
-    handleGlobalChange({ target: { name, value: decimalValue.toString() } });
   };
 
   const SectionHeader = ({ title, icon: Icon, section }) => (
@@ -55,28 +100,6 @@ const Controls = ({ onClose }) => {
         : <ChevronDown size={16} className="text-slate-400" />
       }
     </button>
-  );
-
-  const InputField = ({ label, name, value, onChange, type = 'number', step = '0.01', isPercentage = false, tooltip }) => (
-    <div>
-      <div className="flex items-center gap-1 mb-1">
-        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{label}</label>
-        {tooltip && <InfoTooltip text={tooltip} side="right" />}
-      </div>
-      <div className="relative">
-        <input
-          type={type}
-          step={step}
-          name={name}
-          value={isPercentage ? (parseFloat(value) * 100).toFixed(2) : value}
-          onChange={isPercentage ? handlePercentageChange : onChange}
-          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-500 rounded-lg focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 outline-none transition text-sm"
-        />
-        {isPercentage && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
-        )}
-      </div>
-    </div>
   );
 
   const formatLabel = (label) =>
@@ -125,9 +148,18 @@ const Controls = ({ onClose }) => {
 
       {/* Salary Growth */}
       <div className="rounded-xl border border-slate-700/60 overflow-hidden">
-        <SectionHeader title="Salary Growth" icon={TrendingUp} section="salary" />
+        <SectionHeader title="Salary" icon={TrendingUp} section="salary" />
         {expandedSections.salary && (
           <div className="p-4 space-y-3 bg-slate-900/40">
+            <InputField
+              label="Michael Starting Salary ($)"
+              name="michaelStartingSalary"
+              value={globals.michaelStartingSalary}
+              onChange={handleGlobalChange}
+              type="number"
+              step="1000"
+              tooltip="Michael's current annual gross salary. This is the base amount that grows each year by the salary growth rate."
+            />
             <InputField
               label="Michael Annual Growth"
               name="michaelSalaryGrowth"
@@ -135,6 +167,15 @@ const Controls = ({ onClose }) => {
               onChange={handleGlobalChange}
               isPercentage
               tooltip="Expected annual raise percentage for Michael. Applies compound growth each year until retirement. US average is 3–4% annually."
+            />
+            <InputField
+              label="Brianna Starting Salary ($)"
+              name="briannaStartingSalary"
+              value={globals.briannaStartingSalary}
+              onChange={handleGlobalChange}
+              type="number"
+              step="1000"
+              tooltip="Brianna's current annual gross salary. This is the base amount that grows each year by the salary growth rate."
             />
             <InputField
               label="Brianna Annual Growth"
