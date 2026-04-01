@@ -29,6 +29,8 @@ const DEFAULT_GLOBALS = {
   marketReturn: 0.07,
   marketReturnStdDev: 0.15,
   inflationRate: 0.025,
+  michaelStartingSalary: 81700,
+  briannaStartingSalary: 35000,
   michaelSalaryGrowth: 0.03,
   briannaSalaryGrowth: 0.03,
   michael401kRate: 0.15,
@@ -68,7 +70,7 @@ const INITIAL_BROKERAGE   = 130540;
 const INITIAL_SAVINGS     = 10848;
 
 export const DataProvider = ({ children }) => {
-  const [globals, setGlobals] = useState(() => loadLS('globals', DEFAULT_GLOBALS));
+  const [globals, setGlobals] = useState(() => ({ ...DEFAULT_GLOBALS, ...loadLS('globals', {}) }));
   const [overrides, setOverrides] = useState(() => loadLS('overrides', {}));
   const [michaelExpenses, setMichaelExpenses] = useState(() => loadLS('michaelExpenses', DEFAULT_MICHAEL_EXPENSES));
   const [briannaExpenses, setBriannaExpenses] = useState(() => loadLS('briannaExpenses', DEFAULT_BRIANNA_EXPENSES));
@@ -165,8 +167,8 @@ export const DataProvider = ({ children }) => {
       const briannaRetired = briannaAge >= globals.briannaRetirementAge;
       const bothRetired = michaelRetired && briannaRetired;
       
-      const mSalary = o.mSalary ?? (michaelRetired ? 0 : (year === START_YEAR ? 81700 : (prev?.mSalary || 81700) * (1 + globals.michaelSalaryGrowth)));
-      const bSalary = o.bSalary ?? (briannaRetired ? 0 : (year === START_YEAR ? 35000 : (prev?.bSalary || 35000) * (1 + globals.briannaSalaryGrowth)));
+      const mSalary = o.mSalary ?? (michaelRetired ? 0 : (year === START_YEAR ? globals.michaelStartingSalary : (prev?.mSalary || globals.michaelStartingSalary) * (1 + globals.michaelSalaryGrowth)));
+      const bSalary = o.bSalary ?? (briannaRetired ? 0 : (year === START_YEAR ? globals.briannaStartingSalary : (prev?.bSalary || globals.briannaStartingSalary) * (1 + globals.briannaSalaryGrowth)));
       
       let mExp, bExp, yearlyExpenses;
       if (bothRetired) {
@@ -316,8 +318,8 @@ export const DataProvider = ({ children }) => {
     
     for (let sim = 0; sim < numSimulations; sim++) {
       let m401k = INITIAL_M401K, b401k = INITIAL_B401K, roth = INITIAL_ROTH, brokerage = INITIAL_BROKERAGE, savings = INITIAL_SAVINGS;
-      let mSal = 81700;
-      let bSal = 35000;
+      let mSal = globals.michaelStartingSalary;
+      let bSal = globals.briannaStartingSalary;
       let survived = true;
       const endYears = [];
       let retirementYear = null;
