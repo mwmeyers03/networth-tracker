@@ -29,3 +29,6 @@ src/New_Project/RIR_Project/*.ipynb
 src/New_Project/RIR_Project/
 nohup.out
 build/
+
+# Electron desktop build output
+dist/
