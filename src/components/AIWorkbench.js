@@ -220,6 +220,185 @@ const truncate = (value, len = 180) => {
   return `${text.slice(0, len - 1)}...`;
 };
 
+const parseScenarioFromPrompt = (promptText) => {
+  const text = String(promptText || '');
+  const parsed = {};
+
+  const retirementAgeMatch = text.match(/retir(?:e|ing)\s+at\s+(\d{2})(?:\s*\/\s*(\d{2}))?/i);
+  if (retirementAgeMatch) {
+    const michaelAge = toFiniteNumber(retirementAgeMatch[1]);
+    const briannaAge = toFiniteNumber(retirementAgeMatch[2] || retirementAgeMatch[1]);
+    if (michaelAge !== null) parsed.michaelRetirementAge = michaelAge;
+    if (briannaAge !== null) parsed.briannaRetirementAge = briannaAge;
+  }
+
+  const inflationShockMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*inflation(?:\s*for\s*(\d+)\s*years?)?/i);
+  if (inflationShockMatch) {
+    const ratePct = toFiniteNumber(inflationShockMatch[1]);
+    const years = toFiniteNumber(inflationShockMatch[2]);
+    if (ratePct !== null) parsed.inflationShockRate = ratePct / 100;
+    if (years !== null) {
+      parsed.inflationShockYears = Math.max(0, Math.floor(years));
+    } else if (ratePct !== null) {
+      parsed.inflationShockYears = 3;
+    }
+  }
+
+  const inflationRateMatch = text.match(/inflation\s*(?:rate)?[^0-9]{0,8}(\d+(?:\.\d+)?)\s*%/i);
+  if (inflationRateMatch) {
+    const inflationPct = toFiniteNumber(inflationRateMatch[1]);
+    if (inflationPct !== null) parsed.inflationRate = inflationPct / 100;
+  }
+
+  const withdrawalMatch = text.match(/withdrawal\s*rate[^0-9]{0,8}(\d+(?:\.\d+)?)\s*%/i);
+  if (withdrawalMatch) {
+    const withdrawalPct = toFiniteNumber(withdrawalMatch[1]);
+    if (withdrawalPct !== null) parsed.withdrawalRate = withdrawalPct / 100;
+  }
+
+  const marketReturnMatch = text.match(/market\s*return[^0-9]{0,8}(\d+(?:\.\d+)?)\s*%/i);
+  if (marketReturnMatch) {
+    const marketPct = toFiniteNumber(marketReturnMatch[1]);
+    if (marketPct !== null) parsed.marketReturn = marketPct / 100;
+  }
+
+  const retirementSpendMatch = text.match(/(?:retirement\s*spend|annual\s*spend|yearly\s*spend|spend)\D{0,12}\$?\s*([0-9][0-9,]*(?:\.\d+)?)/i);
+  if (retirementSpendMatch) {
+    const spend = toFiniteNumber(String(retirementSpendMatch[1]).replace(/,/g, ''));
+    if (spend !== null) parsed.retirementYearlyAmount = spend;
+  }
+
+  return parsed;
+};
+
+const buildDeterministicNumericalRows = (report) => {
+  if (!report || typeof report !== 'object') return [];
+
+  const base = report.baseline || {};
+  const scenario = report.scenario || {};
+
+  const rows = [
+    {
+      id: 'det-base-retire-net-worth',
+      metric: 'Baseline retirement net worth',
+      value: toFiniteNumber(base.retirementNetWorth),
+      unit: 'USD',
+      formula: 'From local projection: net worth in first retirement year under current assumptions.',
+      confidence: 'high',
+      note: '',
+    },
+    {
+      id: 'det-scenario-retire-net-worth',
+      metric: 'Scenario retirement net worth',
+      value: toFiniteNumber(scenario.retirementNetWorth),
+      unit: 'USD',
+      formula: 'From local projection: net worth in first retirement year under requested scenario.',
+      confidence: 'high',
+      note: '',
+    },
+    {
+      id: 'det-retire-net-worth-delta',
+      metric: 'Retirement net worth delta (scenario - baseline)',
+      value:
+        toFiniteNumber(scenario.retirementNetWorth) !== null && toFiniteNumber(base.retirementNetWorth) !== null
+          ? Number(scenario.retirementNetWorth) - Number(base.retirementNetWorth)
+          : null,
+      unit: 'USD',
+      formula: 'Scenario retirement net worth minus baseline retirement net worth.',
+      confidence: 'high',
+      note: '',
+    },
+    {
+      id: 'det-base-coverage-ratio',
+      metric: 'Baseline withdrawal coverage ratio',
+      value: toFiniteNumber(base.withdrawalCoverageRatio),
+      unit: 'x',
+      formula: '(Retirement net worth * withdrawal rate) / retirement yearly spend.',
+      confidence: 'high',
+      note: '',
+    },
+    {
+      id: 'det-scenario-coverage-ratio',
+      metric: 'Scenario withdrawal coverage ratio',
+      value: toFiniteNumber(scenario.withdrawalCoverageRatio),
+      unit: 'x',
+      formula: '(Scenario retirement net worth * scenario withdrawal rate) / scenario yearly spend.',
+      confidence: 'high',
+      note: '',
+    },
+    {
+      id: 'det-scenario-end-net-worth',
+      metric: 'Scenario end-of-horizon net worth',
+      value: toFiniteNumber(scenario.endNetWorth),
+      unit: 'USD',
+      formula: 'Projected net worth at final horizon year from local deterministic model.',
+      confidence: 'high',
+      note: '',
+    },
+    {
+      id: 'det-scenario-min-net-worth',
+      metric: 'Scenario minimum net worth',
+      value: toFiniteNumber(scenario.minNetWorth),
+      unit: 'USD',
+      formula: 'Minimum annual net worth observed in local deterministic projection.',
+      confidence: 'high',
+      note: '',
+    },
+  ];
+
+  return rows.filter((row) => row.value !== null);
+};
+
+const buildDeterministicScenarioRows = (report) => {
+  if (!report || typeof report !== 'object') return [];
+
+  const base = report.baseline || {};
+  const scenario = report.scenario || {};
+
+  return [
+    {
+      id: 'det-scenario-base',
+      scenario: 'baseline',
+      retirementYear: toFiniteNumber(base.retirementYear),
+      retirementNetWorth: toFiniteNumber(base.retirementNetWorth),
+      successRatePct: null,
+      depletionYear: toFiniteNumber(base.firstLiquidityGapYear ?? base.firstNonPositiveNetWorthYear),
+      notes: 'Current app assumptions.',
+    },
+    {
+      id: 'det-scenario-requested',
+      scenario: 'requested',
+      retirementYear: toFiniteNumber(scenario.retirementYear),
+      retirementNetWorth: toFiniteNumber(scenario.retirementNetWorth),
+      successRatePct: null,
+      depletionYear: toFiniteNumber(scenario.firstLiquidityGapYear ?? scenario.firstNonPositiveNetWorthYear),
+      notes: 'Parsed scenario prompt assumptions evaluated locally.',
+    },
+  ];
+};
+
+const buildDeterministicActions = (report) => {
+  if (!report || typeof report !== 'object') return [];
+  const base = report.baseline || {};
+  const scenario = report.scenario || {};
+  const actions = [];
+
+  if (
+    toFiniteNumber(base.withdrawalCoverageRatio) !== null &&
+    toFiniteNumber(scenario.withdrawalCoverageRatio) !== null &&
+    Number(scenario.withdrawalCoverageRatio) < Number(base.withdrawalCoverageRatio)
+  ) {
+    actions.push('Reduce retirement spend or increase retirement age until withdrawal coverage ratio improves versus baseline.');
+  }
+
+  if (toFiniteNumber(scenario.firstLiquidityGapYear) !== null) {
+    actions.push(`Address projected liquidity gap around ${Math.round(Number(scenario.firstLiquidityGapYear))} by lowering spend or increasing contributions.`);
+  }
+
+  actions.push('Run a comparison with retirement age +2 years and review the retirement net worth delta.');
+  return actions;
+};
+
 const summarizeEdits = (edits) => {
   if (!edits || typeof edits !== 'object') return [];
 
@@ -253,6 +432,8 @@ const buildInstructions = (mode, speedPreset) => {
     'Return only valid JSON. Do not include markdown fences.',
     'Give a thorough answer that directly addresses the user request.',
     'Do not provide generic filler. Tie every recommendation to the provided plan context.',
+    'Use deterministicLocalScenario values from context as authoritative when available.',
+    'Do not replace deterministic values with guessed values.',
     `Include at least ${speedPreset.minAnalysisPoints} concrete items in answer.deepAnalysis.`,
     'Always include answer.numericalResults with real numeric values and formulas.',
     'Use currency amounts in USD with plain numbers (no commas).',
@@ -438,6 +619,7 @@ const AIWorkbench = ({ compact = false }) => {
   const {
     applyAIPatch,
     briannaExpenses,
+    evaluateScenario,
     financialData,
     formatCur,
     globals,
@@ -619,6 +801,61 @@ const AIWorkbench = ({ compact = false }) => {
     retirementExpenses,
   ]);
 
+  const enrichResponseWithDeterministic = useCallback((response, deterministicReport) => {
+    if (!response || !deterministicReport) return response;
+
+    const existingData = response.data && typeof response.data === 'object'
+      ? response.data
+      : {};
+
+    if (!response.success) {
+      return {
+        ...response,
+        data: {
+          ...existingData,
+          deterministicLocalScenario: deterministicReport,
+        },
+      };
+    }
+    const existingAnswer = existingData.answer && typeof existingData.answer === 'object'
+      ? existingData.answer
+      : {};
+
+    const deterministicNumericalResults = buildDeterministicNumericalRows(deterministicReport);
+    const deterministicScenarioRows = buildDeterministicScenarioRows(deterministicReport);
+    const deterministicActions = buildDeterministicActions(deterministicReport);
+
+    const modelActions = toList(existingAnswer.nextActions || existingData.nextActions);
+    const mergedActions = [...new Set([...deterministicActions, ...modelActions])].slice(0, 12);
+
+    const mergedAnswer = {
+      ...existingAnswer,
+      numericalResults: [
+        ...deterministicNumericalResults,
+        ...(Array.isArray(existingAnswer.numericalResults) ? existingAnswer.numericalResults : []),
+      ],
+      scenarioTable: deterministicScenarioRows.length > 0
+        ? deterministicScenarioRows
+        : (Array.isArray(existingAnswer.scenarioTable) ? existingAnswer.scenarioTable : []),
+      nextActions: mergedActions,
+    };
+
+    const mergedData = {
+      ...existingData,
+      answer: mergedAnswer,
+      deterministicLocalScenario: deterministicReport,
+    };
+
+    return {
+      ...response,
+      data: mergedData,
+      warning: [
+        response.warning,
+        'Deterministic local simulation values were merged into this response.',
+      ].filter(Boolean).join(' '),
+    };
+  }, []);
+
   const normalizedResult = useMemo(
     () => normalizeAssistantData(result?.success ? result.data : null),
     [result]
@@ -698,6 +935,9 @@ const AIWorkbench = ({ compact = false }) => {
     setLoading(true);
 
     try {
+      const parsedScenario = parseScenarioFromPrompt(effectivePrompt);
+      const deterministicScenario = evaluateScenario(parsedScenario);
+
       const contextPayload = mode === 'ask'
         ? {
             runtime: contextSnapshot.runtime,
@@ -707,8 +947,12 @@ const AIWorkbench = ({ compact = false }) => {
             monteCarloSummary: contextSnapshot.monteCarloSummary,
             keyAssumptions: contextSnapshot.keyAssumptions,
             projectionPreview: contextSnapshot.projectionPreview,
+            deterministicLocalScenario: deterministicScenario,
           }
-        : contextSnapshot;
+        : {
+            ...contextSnapshot,
+            deterministicLocalScenario: deterministicScenario,
+          };
 
       const contextBlocks = [];
       contextBlocks.push('Current app context JSON:');
@@ -752,7 +996,7 @@ const AIWorkbench = ({ compact = false }) => {
         generationOptions,
       });
 
-      setResult(response);
+      setResult(enrichResponseWithDeterministic(response, deterministicScenario));
     } finally {
       setLoading(false);
     }
@@ -804,6 +1048,13 @@ const AIWorkbench = ({ compact = false }) => {
   const rootClass = compact
     ? 'h-full flex flex-col gap-3'
     : 'max-w-7xl mx-auto space-y-5 pb-6';
+
+  const deterministicScenario = result?.data?.deterministicLocalScenario || null;
+  const deterministicScenarioDelta =
+    toFiniteNumber(deterministicScenario?.scenario?.retirementNetWorth) !== null &&
+    toFiniteNumber(deterministicScenario?.baseline?.retirementNetWorth) !== null
+      ? Number(deterministicScenario.scenario.retirementNetWorth) - Number(deterministicScenario.baseline.retirementNetWorth)
+      : null;
 
   return (
     <div className={rootClass}>
@@ -1122,10 +1373,26 @@ const AIWorkbench = ({ compact = false }) => {
                       <p className="text-slate-200 font-semibold">{formatCur(contextSnapshot.projectionSummary.retirementNetWorth || 0)}</p>
                     </div>
                     <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Scenario Retire Net Worth</p>
+                      <p className="text-slate-200 font-semibold">
+                        {toFiniteNumber(deterministicScenario?.scenario?.retirementNetWorth) !== null
+                          ? formatCur(deterministicScenario.scenario.retirementNetWorth)
+                          : '-'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Scenario Delta</p>
+                      <p className="text-slate-200 font-semibold">
+                        {deterministicScenarioDelta !== null ? formatCur(deterministicScenarioDelta) : '-'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
                       <p className="text-slate-500">Coverage Ratio</p>
                       <p className="text-slate-200 font-semibold">
-                        {contextSnapshot.numericDiagnostics.retirementCoverageRatio !== null
-                          ? `${contextSnapshot.numericDiagnostics.retirementCoverageRatio.toFixed(2)}x`
+                        {toFiniteNumber(deterministicScenario?.scenario?.withdrawalCoverageRatio) !== null
+                          ? `${Number(deterministicScenario.scenario.withdrawalCoverageRatio).toFixed(2)}x`
+                          : contextSnapshot.numericDiagnostics.retirementCoverageRatio !== null
+                            ? `${contextSnapshot.numericDiagnostics.retirementCoverageRatio.toFixed(2)}x`
                           : '-'}
                       </p>
                     </div>

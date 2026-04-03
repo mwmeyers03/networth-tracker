@@ -269,7 +269,7 @@ export const DataProvider = ({ children }) => {
   const calculateMichaelExpenses = useCallback(() => Object.values(michaelExpenses).reduce((a, b) => a + b, 0), [michaelExpenses]);
   const calculateBriannaExpenses = useCallback(() => Object.values(briannaExpenses).reduce((a, b) => a + b, 0), [briannaExpenses]);
 
-  const calculateFederalTax = (grossIncome, preTax401k = 0) => {
+  const calculateFederalTax = useCallback((grossIncome, preTax401k = 0) => {
     const standardDeduction = 15750;
     const incomeAfter401k = grossIncome - preTax401k;
     const taxableIncome = Math.max(0, incomeAfter401k - standardDeduction);
@@ -283,72 +283,106 @@ export const DataProvider = ({ children }) => {
     if (taxableIncome > 0)      tax += Math.min(taxableIncome, 11925) * 0.10;
     const fica = grossIncome * 0.0765;
     return grossIncome - preTax401k - tax - fica;
-  };
+  }, []);
 
-  const financialData = useMemo(() => {
+  const projectFinancials = useCallback(({
+    scenarioGlobals = globals,
+    scenarioRetirementExpenses = retirementExpenses,
+    scenarioInflationShockRate = null,
+    scenarioInflationShockYears = 0,
+  } = {}) => {
     let data = [];
     let prev = null;
     const baseMExp = calculateMichaelExpenses();
     const baseBExp = calculateBriannaExpenses();
 
-    for (let year = START_YEAR; year <= START_YEAR + globals.lifeExpectancy; year++) {
+    for (let year = START_YEAR; year <= START_YEAR + scenarioGlobals.lifeExpectancy; year++) {
       const o = overrides[year] || {};
       const michaelAge = 22 + (year - 2024);
       const briannaAge = 21 + (year - 2024);
-      
-      const michaelRetired = michaelAge >= globals.michaelRetirementAge;
-      const briannaRetired = briannaAge >= globals.briannaRetirementAge;
+
+      const michaelRetired = michaelAge >= scenarioGlobals.michaelRetirementAge;
+      const briannaRetired = briannaAge >= scenarioGlobals.briannaRetirementAge;
       const bothRetired = michaelRetired && briannaRetired;
-      
-      const mSalary = o.mSalary ?? (michaelRetired ? 0 : (year === START_YEAR ? globals.michaelStartingSalary : (prev?.mSalary || globals.michaelStartingSalary) * (1 + globals.michaelSalaryGrowth)));
-      const bSalary = o.bSalary ?? (briannaRetired ? 0 : (year === START_YEAR ? globals.briannaStartingSalary : (prev?.bSalary || globals.briannaStartingSalary) * (1 + globals.briannaSalaryGrowth)));
-      
-      let mExp, bExp, yearlyExpenses;
+
+      const mSalary = o.mSalary ?? (
+        michaelRetired
+          ? 0
+          : (year === START_YEAR
+            ? scenarioGlobals.michaelStartingSalary
+            : (prev?.mSalary || scenarioGlobals.michaelStartingSalary) * (1 + scenarioGlobals.michaelSalaryGrowth))
+      );
+      const bSalary = o.bSalary ?? (
+        briannaRetired
+          ? 0
+          : (year === START_YEAR
+            ? scenarioGlobals.briannaStartingSalary
+            : (prev?.bSalary || scenarioGlobals.briannaStartingSalary) * (1 + scenarioGlobals.briannaSalaryGrowth))
+      );
+
+      const yearOffset = year - START_YEAR;
+      const inflationForYear = (
+        scenarioInflationShockRate !== null &&
+        yearOffset > 0 &&
+        yearOffset <= scenarioInflationShockYears
+      )
+        ? scenarioInflationShockRate
+        : scenarioGlobals.inflationRate;
+
+      let mExp;
+      let bExp;
+      let yearlyExpenses;
       if (bothRetired) {
-        yearlyExpenses = retirementExpenses.yearlyAmount;
-        mExp = 0; 
+        yearlyExpenses = scenarioRetirementExpenses.yearlyAmount;
+        mExp = 0;
         bExp = 0;
       } else {
-        mExp = o.mExp ?? (year === START_YEAR ? baseMExp : (prev?.mExp || baseMExp) * (1 + globals.inflationRate));
-        bExp = o.bExp ?? (year === START_YEAR ? baseBExp : (prev?.bExp || baseBExp) * (1 + globals.inflationRate));
+        mExp = o.mExp ?? (
+          year === START_YEAR
+            ? baseMExp
+            : (prev?.mExp || baseMExp) * (1 + inflationForYear)
+        );
+        bExp = o.bExp ?? (
+          year === START_YEAR
+            ? baseBExp
+            : (prev?.bExp || baseBExp) * (1 + inflationForYear)
+        );
         yearlyExpenses = (mExp + bExp) * 12;
       }
 
-      // ── Get initial balances from the PREVIOUS year's final values ──────────
-      // Fix: m401kBal and b401kBal are now stored individually in `current`, so
-      // prev.m401kBal / prev.b401kBal correctly carries the balance forward.
-      const m401kInitial = year === START_YEAR ? INITIAL_M401K     : (prev?.m401kBal ?? 0);
-      const b401kInitial = year === START_YEAR ? INITIAL_B401K     : (prev?.b401kBal ?? 0);
+      const m401kInitial = year === START_YEAR ? INITIAL_M401K : (prev?.m401kBal ?? 0);
+      const b401kInitial = year === START_YEAR ? INITIAL_B401K : (prev?.b401kBal ?? 0);
 
-      // Apply market returns first
-      let m401kBal    = m401kInitial * (1 + globals.marketReturn);
-      let b401kBal    = b401kInitial * (1 + globals.marketReturn);
-      let rothBal     = (year === START_YEAR ? INITIAL_ROTH      : (prev?.rothBal      ?? 0)) * (1 + globals.marketReturn);
-      let brokerageBal= (year === START_YEAR ? INITIAL_BROKERAGE : (prev?.brokerageBal ?? 0)) * (1 + globals.marketReturn);
-      let savingsBal  =  year === START_YEAR ? INITIAL_SAVINGS   : (prev?.savingsBal   ?? 0);
-      
+      let m401kBal = m401kInitial * (1 + scenarioGlobals.marketReturn);
+      let b401kBal = b401kInitial * (1 + scenarioGlobals.marketReturn);
+      let rothBal = (year === START_YEAR ? INITIAL_ROTH : (prev?.rothBal ?? 0)) * (1 + scenarioGlobals.marketReturn);
+      let brokerageBal = (year === START_YEAR ? INITIAL_BROKERAGE : (prev?.brokerageBal ?? 0)) * (1 + scenarioGlobals.marketReturn);
+      let savingsBal = year === START_YEAR ? INITIAL_SAVINGS : (prev?.savingsBal ?? 0);
+
       let withdrawalAmount = 0;
       let liquidityGap = 0;
-      
+
       if (!bothRetired) {
-        const m401kAdded = mSalary > 0 ? (mSalary * globals.michael401kRate) + (mSalary * globals.michael401kMatch) : 0;
-        const b401kAdded = bSalary > 0 ? (bSalary * globals.brianna401kRate) : 0;
-        
+        const m401kAdded = mSalary > 0
+          ? (mSalary * scenarioGlobals.michael401kRate) + (mSalary * scenarioGlobals.michael401kMatch)
+          : 0;
+        const b401kAdded = bSalary > 0 ? (bSalary * scenarioGlobals.brianna401kRate) : 0;
+
         m401kBal += m401kAdded;
         b401kBal += b401kAdded;
-        rothBal += globals.rothYearlyContrib;
-        brokerageBal += globals.brokerageYearlyContrib;
-        
+        rothBal += scenarioGlobals.rothYearlyContrib;
+        brokerageBal += scenarioGlobals.brokerageYearlyContrib;
+
         const mTakeHome = mSalary > 0 ? calculateFederalTax(mSalary, m401kAdded) : 0;
         const bTakeHome = bSalary > 0 ? calculateFederalTax(bSalary, b401kAdded) : 0;
-        
-        const mSavingsContrib = mTakeHome - (mExp*12) - (globals.rothYearlyContrib / 2) - (globals.brokerageYearlyContrib / 2);
-        const bSavingsContrib = bTakeHome - (bExp*12) - (globals.rothYearlyContrib / 2) - (globals.brokerageYearlyContrib / 2);
-        
+
+        const mSavingsContrib = mTakeHome - (mExp * 12) - (scenarioGlobals.rothYearlyContrib / 2) - (scenarioGlobals.brokerageYearlyContrib / 2);
+        const bSavingsContrib = bTakeHome - (bExp * 12) - (scenarioGlobals.rothYearlyContrib / 2) - (scenarioGlobals.brokerageYearlyContrib / 2);
+
         savingsBal += mSavingsContrib + bSavingsContrib;
       } else {
         let needed = yearlyExpenses;
-        
+
         if (savingsBal >= needed) {
           savingsBal -= needed;
           needed = 0;
@@ -356,13 +390,13 @@ export const DataProvider = ({ children }) => {
           needed -= savingsBal;
           savingsBal = 0;
         }
-        
+
         if (needed > 0 && brokerageBal > 0) {
           const take = Math.min(brokerageBal, needed);
           brokerageBal -= take;
           needed -= take;
         }
-        
+
         if (needed > 0) {
           if (michaelAge >= 59.5 && m401kBal > 0) {
             const take = Math.min(m401kBal, needed);
@@ -375,65 +409,190 @@ export const DataProvider = ({ children }) => {
             needed -= take;
           }
         }
-        
+
         if (needed > 0 && (michaelAge >= 59.5 || briannaAge >= 59.5) && rothBal > 0) {
           const take = Math.min(rothBal, needed);
           rothBal -= take;
           needed -= take;
         }
-        
+
         if (needed > 0) {
           savingsBal -= needed;
           liquidityGap = needed;
         }
       }
-      
+
       m401kBal = Math.max(0, m401kBal);
       b401kBal = Math.max(0, b401kBal);
       rothBal = Math.max(0, rothBal);
       brokerageBal = Math.max(0, brokerageBal);
 
-      // ── Apply overrides as FINAL values (after returns & contributions) ─────
-      // Fix: overrides now represent the displayed ending balance, not an initial
-      // balance. This prevents the ~$20-30K inflation that occurred when a user
-      // clicked a cell and clicked away without changing anything.
       if (o.total401kBal !== undefined) {
         const totalInit = m401kInitial + b401kInitial;
         const mRatio = totalInit > 0 ? m401kInitial / totalInit : INITIAL_M401K / (INITIAL_M401K + INITIAL_B401K);
         m401kBal = Math.max(0, o.total401kBal) * mRatio;
         b401kBal = Math.max(0, o.total401kBal) * (1 - mRatio);
       }
-      if (o.rothBal      !== undefined) rothBal      = Math.max(0, o.rothBal);
+      if (o.rothBal !== undefined) rothBal = Math.max(0, o.rothBal);
       if (o.brokerageBal !== undefined) brokerageBal = Math.max(0, o.brokerageBal);
-      if (o.savingsBal   !== undefined) savingsBal   = o.savingsBal; // allow negative (debt)
+      if (o.savingsBal !== undefined) savingsBal = o.savingsBal;
 
-      const current = { 
-        year, 
+      const current = {
+        year,
         michaelAge: Math.round(michaelAge * 10) / 10,
         briannaAge: Math.round(briannaAge * 10) / 10,
-        mSalary, 
-        bSalary, 
-        combinedGross: mSalary + bSalary, 
+        mSalary,
+        bSalary,
+        combinedGross: mSalary + bSalary,
         mExp,
         bExp,
         combinedExp: yearlyExpenses,
-        // Store individual 401k balances so the next iteration can read them via prev
         m401kBal,
         b401kBal,
-        total401k: m401kBal + b401kBal, 
-        rothBal, 
-        brokerageBal, 
-        savingsBal, 
+        total401k: m401kBal + b401kBal,
+        rothBal,
+        brokerageBal,
+        savingsBal,
         netWorth: m401kBal + b401kBal + rothBal + brokerageBal + savingsBal,
         retired: bothRetired,
         withdrawalAmount,
-        liquidityGap
+        liquidityGap,
       };
+
       data.push(current);
       prev = current;
     }
+
     return data;
-  }, [globals, overrides, calculateMichaelExpenses, calculateBriannaExpenses, retirementExpenses]);
+  }, [
+    globals,
+    overrides,
+    calculateMichaelExpenses,
+    calculateBriannaExpenses,
+    retirementExpenses,
+    calculateFederalTax,
+  ]);
+
+  const financialData = useMemo(() => {
+    return projectFinancials();
+  }, [projectFinancials]);
+
+  const summarizeProjection = useCallback((rows, activeGlobals, activeRetirementExpenses) => {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return {
+        startYear: null,
+        endYear: null,
+        retirementYear: null,
+        retirementNetWorth: null,
+        peakNetWorth: null,
+        peakYear: null,
+        endNetWorth: null,
+        minNetWorth: null,
+        minYear: null,
+        firstLiquidityGapYear: null,
+        firstNonPositiveNetWorthYear: null,
+        withdrawalCoverageRatio: null,
+      };
+    }
+
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const retirement = rows.find((row) => row.retired) || null;
+    const peak = rows.reduce((acc, row) => (row.netWorth > acc.netWorth ? row : acc), rows[0]);
+    const trough = rows.reduce((acc, row) => (row.netWorth < acc.netWorth ? row : acc), rows[0]);
+    const liquidityGapRow = rows.find((row) => Number(row.liquidityGap || 0) > 0) || null;
+    const nonPositiveNetWorthRow = rows.find((row) => Number(row.netWorth || 0) <= 0) || null;
+
+    const retirementIncomeEstimate = retirement
+      ? retirement.netWorth * Number(activeGlobals.withdrawalRate || 0)
+      : null;
+    const withdrawalCoverageRatio = (
+      retirementIncomeEstimate !== null &&
+      Number(activeRetirementExpenses?.yearlyAmount || 0) > 0
+    )
+      ? retirementIncomeEstimate / Number(activeRetirementExpenses.yearlyAmount)
+      : null;
+
+    return {
+      startYear: first.year,
+      startNetWorth: first.netWorth,
+      endYear: last.year,
+      endNetWorth: last.netWorth,
+      retirementYear: retirement?.year ?? null,
+      retirementNetWorth: retirement?.netWorth ?? null,
+      peakNetWorth: peak.netWorth,
+      peakYear: peak.year,
+      minNetWorth: trough.netWorth,
+      minYear: trough.year,
+      firstLiquidityGapYear: liquidityGapRow?.year ?? null,
+      firstNonPositiveNetWorthYear: nonPositiveNetWorthRow?.year ?? null,
+      withdrawalCoverageRatio,
+    };
+  }, []);
+
+  const evaluateScenario = useCallback((scenario = {}) => {
+    const scenarioGlobals = { ...globals };
+    const scenarioRetirementExpenses = { ...retirementExpenses };
+
+    const inflationRate = toFiniteNumber(scenario.inflationRate);
+    const inflationShockRate = toFiniteNumber(scenario.inflationShockRate);
+    const inflationShockYearsRaw = toFiniteNumber(scenario.inflationShockYears);
+    const inflationShockYears = inflationShockYearsRaw !== null
+      ? Math.max(0, Math.floor(inflationShockYearsRaw))
+      : 0;
+
+    const michaelRetirementAge = toFiniteNumber(scenario.michaelRetirementAge);
+    const briannaRetirementAge = toFiniteNumber(scenario.briannaRetirementAge);
+    const withdrawalRate = toFiniteNumber(scenario.withdrawalRate);
+    const marketReturn = toFiniteNumber(scenario.marketReturn);
+    const retirementYearlyAmount = toFiniteNumber(scenario.retirementYearlyAmount);
+
+    if (inflationRate !== null) scenarioGlobals.inflationRate = inflationRate;
+    if (michaelRetirementAge !== null) scenarioGlobals.michaelRetirementAge = michaelRetirementAge;
+    if (briannaRetirementAge !== null) scenarioGlobals.briannaRetirementAge = briannaRetirementAge;
+    if (withdrawalRate !== null) scenarioGlobals.withdrawalRate = withdrawalRate;
+    if (marketReturn !== null) scenarioGlobals.marketReturn = marketReturn;
+    if (retirementYearlyAmount !== null) scenarioRetirementExpenses.yearlyAmount = retirementYearlyAmount;
+
+    const scenarioRows = projectFinancials({
+      scenarioGlobals,
+      scenarioRetirementExpenses,
+      scenarioInflationShockRate: inflationShockRate,
+      scenarioInflationShockYears: inflationShockYears,
+    });
+
+    const baselineSummary = summarizeProjection(financialData, globals, retirementExpenses);
+    const scenarioSummary = summarizeProjection(scenarioRows, scenarioGlobals, scenarioRetirementExpenses);
+
+    return {
+      inputs: {
+        inflationRate,
+        inflationShockRate,
+        inflationShockYears,
+        michaelRetirementAge,
+        briannaRetirementAge,
+        withdrawalRate,
+        marketReturn,
+        retirementYearlyAmount,
+      },
+      baseline: baselineSummary,
+      scenario: scenarioSummary,
+      scenarioPreview: scenarioRows.slice(0, 18).map((row) => ({
+        year: row.year,
+        netWorth: Math.round(row.netWorth),
+        combinedExp: Math.round(row.combinedExp),
+        combinedGross: Math.round(row.combinedGross),
+        liquidityGap: Math.round(row.liquidityGap || 0),
+        retired: !!row.retired,
+      })),
+    };
+  }, [
+    globals,
+    retirementExpenses,
+    projectFinancials,
+    summarizeProjection,
+    financialData,
+  ]);
 
   const runMonteCarloSimulation = useCallback((numSimulations = 1000, withdrawalRateOverride = null) => {
     const baseMExp = calculateMichaelExpenses();
@@ -632,7 +791,7 @@ export const DataProvider = ({ children }) => {
       medianFinalPortfolio,
       allResults: results,
     };
-  }, [calculateMichaelExpenses, calculateBriannaExpenses, globals, retirementExpenses]);
+  }, [calculateMichaelExpenses, calculateBriannaExpenses, calculateFederalTax, globals, retirementExpenses]);
 
   const monteCarloBaseline = useMemo(() => runMonteCarloSimulation(1000, null), [runMonteCarloSimulation]);
   const monteCarloConservative = useMemo(() => runMonteCarloSimulation(1000, 0.03), [runMonteCarloSimulation]);
@@ -656,6 +815,7 @@ export const DataProvider = ({ children }) => {
     calculateBriannaExpenses,
     financialData,
     runMonteCarloSimulation,
+    evaluateScenario,
     monteCarloBaseline,
     monteCarloConservative,
     monteCarloAggressive,
