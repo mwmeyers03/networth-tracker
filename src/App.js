@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { DataProvider } from './contexts/DataContext';
 import Dashboard from './components/Dashboard';
 import DataLedger from './components/DataLedger';
 import Retirement from './components/Retirement';
 import Budget from './components/Budget';
 import Controls from './components/Controls';
-import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet } from 'lucide-react';
+import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet, Cpu, WifiOff } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -14,9 +14,62 @@ const TABS = [
   { id: 'budget', label: 'Budget', icon: Wallet },
 ];
 
+// ── Ollama connectivity probe ─────────────────────────────────────────────────
+const OLLAMA_BASE_URL = process.env.REACT_APP_OLLAMA_BASE_URL || 'http://localhost:11434/api/generate';
+const OLLAMA_HEALTH_URL = OLLAMA_BASE_URL.replace('/api/generate', '/api/tags');
+
+function useOllamaStatus() {
+  const [status, setStatus] = useState('checking'); // 'checking' | 'online' | 'offline'
+
+  const check = useCallback(async () => {
+    try {
+      const res = await fetch(OLLAMA_HEALTH_URL, { signal: AbortSignal.timeout(3000) });
+      setStatus(res.ok ? 'online' : 'offline');
+    } catch {
+      setStatus('offline');
+    }
+  }, []);
+
+  useEffect(() => {
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+  }, [check]);
+
+  return status;
+}
+
+function OllamaStatusBadge({ status }) {
+  if (status === 'checking') return null;
+  const online = status === 'online';
+  return (
+    <div
+      title={online ? 'Ollama is running locally' : 'Ollama not detected – AI features unavailable'}
+      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+        online
+          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+          : 'bg-slate-800 border-slate-700 text-slate-500'
+      }`}
+    >
+      {online ? <Cpu size={10} /> : <WifiOff size={10} />}
+      {online ? 'Ollama' : 'No AI'}
+    </div>
+  );
+}
+
 function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const ollamaStatus = useOllamaStatus();
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape' && drawerOpen) setDrawerOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawerOpen]);
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -33,13 +86,16 @@ function AppContent() {
               <p className="text-[10px] text-slate-400 leading-tight mt-0.5">FIRE Calculator</p>
             </div>
           </div>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open settings"
-            className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
-          >
-            <Settings size={18} className="text-slate-300" />
-          </button>
+          <div className="flex items-center gap-2">
+            <OllamaStatusBadge status={ollamaStatus} />
+            <button
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open settings"
+              className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+            >
+              <Settings size={18} className="text-slate-300" />
+            </button>
+          </div>
         </div>
 
         {/* Tab bar */}
@@ -88,6 +144,7 @@ function AppContent() {
                 onClick={() => setDrawerOpen(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-800 transition-colors"
                 aria-label="Close settings"
+                title="Close (Esc)"
               >
                 <X size={18} className="text-slate-400" />
               </button>

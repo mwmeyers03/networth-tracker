@@ -2,6 +2,8 @@
   "name": "networth-tracker",
   "version": "0.1.0",
   "private": true,
+  "homepage": "./",
+  "main": "electron/main.js",
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -18,7 +20,10 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "electron:dev": "concurrently -k \"BROWSER=none react-scripts start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "react-scripts build && electron-builder --win --publish never",
+    "electron:build:dir": "react-scripts build && electron-builder --dir --publish never"
   },
   "eslintConfig": {
     "extends": [
@@ -41,7 +46,45 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
     "autoprefixer": "^10.4.24",
+    "concurrently": "^9.2.1",
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.19"
+    "tailwindcss": "^3.4.19",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.mwmeyers03.networth-tracker",
+    "productName": "Net Worth Tracker",
+    "directories": {
+      "buildResources": "public",
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "public/logo512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/logo512.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "public/logo512.png"
+    }
   }
 }

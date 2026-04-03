@@ -7,6 +7,9 @@
  *   REACT_APP_MODEL_CPU        – lighter model (default: gemma4:4b)
  *   REACT_APP_MODEL_GPU        – heavier model (default: gemma4:26b-moe)
  *   REACT_APP_SYSTEM_PROMPT    – system instruction injected into every request
+ *
+ * Works in both the web version and the Electron desktop build. When running
+ * inside Electron, window.electronAPI.isElectron is true.
  */
 
 const OLLAMA_BASE_URL =
@@ -22,6 +25,10 @@ const MODEL_GPU =
 const SYSTEM_PROMPT =
   process.env.REACT_APP_SYSTEM_PROMPT ||
   'Never store sensitive data. Respond only with valid JSON not markdown fences.';
+
+/** true when running inside the Electron desktop shell */
+export const isElectron =
+  typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
 /**
  * Send a prompt to the local Ollama instance and return the model's response.
