@@ -69,6 +69,23 @@ const INITIAL_ROTH        = 45475;
 const INITIAL_BROKERAGE   = 130540;
 const INITIAL_SAVINGS     = 10848;
 
+const GLOBAL_KEYS = new Set(Object.keys(DEFAULT_GLOBALS));
+const OVERRIDE_KEYS = new Set([
+  'mSalary',
+  'bSalary',
+  'mExp',
+  'bExp',
+  'total401kBal',
+  'rothBal',
+  'brokerageBal',
+  'savingsBal',
+]);
+
+const toFiniteNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
 export const DataProvider = ({ children }) => {
   const [globals, setGlobals] = useState(() => ({ ...DEFAULT_GLOBALS, ...loadLS('globals', {}) }));
   const [overrides, setOverrides] = useState(() => loadLS('overrides', {}));
@@ -128,6 +145,122 @@ export const DataProvider = ({ children }) => {
     if (!key) return;
     setBriannaExpenses(prev => (prev[key] !== undefined ? prev : { ...prev, [key]: 0 }));
   };
+
+  const applyAIPatch = useCallback((patch) => {
+    if (!patch || typeof patch !== 'object') {
+      return {
+        applied: false,
+        counts: { globals: 0, michaelExpenses: 0, briannaExpenses: 0, retirementExpenses: 0, overrides: 0 },
+      };
+    }
+
+    const normalizedGlobals = {};
+    const normalizedMichaelExpenses = {};
+    const normalizedBriannaExpenses = {};
+    const normalizedOverrides = {};
+    let normalizedRetirementYearly = null;
+
+    if (patch.globals && typeof patch.globals === 'object') {
+      for (const [key, value] of Object.entries(patch.globals)) {
+        if (!GLOBAL_KEYS.has(key)) continue;
+        const num = toFiniteNumber(value);
+        if (num === null) continue;
+        normalizedGlobals[key] = num;
+      }
+    }
+
+    if (patch.michaelExpenses && typeof patch.michaelExpenses === 'object') {
+      for (const [label, value] of Object.entries(patch.michaelExpenses)) {
+        const key = normalizeExpenseKey(label);
+        const num = toFiniteNumber(value);
+        if (!key || num === null) continue;
+        normalizedMichaelExpenses[key] = num;
+      }
+    }
+
+    if (patch.briannaExpenses && typeof patch.briannaExpenses === 'object') {
+      for (const [label, value] of Object.entries(patch.briannaExpenses)) {
+        const key = normalizeExpenseKey(label);
+        const num = toFiniteNumber(value);
+        if (!key || num === null) continue;
+        normalizedBriannaExpenses[key] = num;
+      }
+    }
+
+    if (typeof patch.retirementExpenses === 'number') {
+      normalizedRetirementYearly = toFiniteNumber(patch.retirementExpenses);
+    } else if (
+      patch.retirementExpenses &&
+      typeof patch.retirementExpenses === 'object' &&
+      patch.retirementExpenses.yearlyAmount !== undefined
+    ) {
+      normalizedRetirementYearly = toFiniteNumber(patch.retirementExpenses.yearlyAmount);
+    }
+
+    if (patch.overrides && typeof patch.overrides === 'object') {
+      const maxYear = START_YEAR + Math.max(globals.lifeExpectancy, 1);
+      for (const [yearKey, fields] of Object.entries(patch.overrides)) {
+        const year = parseInt(yearKey, 10);
+        if (!Number.isInteger(year) || year < START_YEAR || year > maxYear) continue;
+        if (!fields || typeof fields !== 'object') continue;
+
+        const yearPatch = {};
+        for (const [field, value] of Object.entries(fields)) {
+          if (!OVERRIDE_KEYS.has(field)) continue;
+          const num = toFiniteNumber(value);
+          if (num === null) continue;
+          yearPatch[field] = num;
+        }
+
+        if (Object.keys(yearPatch).length > 0) {
+          normalizedOverrides[year] = yearPatch;
+        }
+      }
+    }
+
+    if (Object.keys(normalizedGlobals).length > 0) {
+      setGlobals(prev => ({ ...prev, ...normalizedGlobals }));
+    }
+
+    if (Object.keys(normalizedMichaelExpenses).length > 0) {
+      setMichaelExpenses(prev => ({ ...prev, ...normalizedMichaelExpenses }));
+    }
+
+    if (Object.keys(normalizedBriannaExpenses).length > 0) {
+      setBriannaExpenses(prev => ({ ...prev, ...normalizedBriannaExpenses }));
+    }
+
+    if (normalizedRetirementYearly !== null) {
+      setRetirementExpenses({ yearlyAmount: normalizedRetirementYearly });
+    }
+
+    if (Object.keys(normalizedOverrides).length > 0) {
+      setOverrides(prev => {
+        const next = { ...prev };
+        for (const [year, yearPatch] of Object.entries(normalizedOverrides)) {
+          next[year] = { ...(next[year] || {}), ...yearPatch };
+        }
+        return next;
+      });
+    }
+
+    const counts = {
+      globals: Object.keys(normalizedGlobals).length,
+      michaelExpenses: Object.keys(normalizedMichaelExpenses).length,
+      briannaExpenses: Object.keys(normalizedBriannaExpenses).length,
+      retirementExpenses: normalizedRetirementYearly !== null ? 1 : 0,
+      overrides: Object.values(normalizedOverrides).reduce((sum, fields) => sum + Object.keys(fields).length, 0),
+    };
+
+    const total =
+      counts.globals +
+      counts.michaelExpenses +
+      counts.briannaExpenses +
+      counts.retirementExpenses +
+      counts.overrides;
+
+    return { applied: total > 0, counts };
+  }, [globals.lifeExpectancy]);
 
   const handleRetirementExpenseChange = (value) => {
     setRetirementExpenses({ yearlyAmount: parseFloat(value) || 0 });
@@ -517,6 +650,7 @@ export const DataProvider = ({ children }) => {
     handleBriannaExpenseChange,
     addMichaelExpenseCategory,
     addBriannaExpenseCategory,
+    applyAIPatch,
     handleRetirementExpenseChange,
     calculateMichaelExpenses,
     calculateBriannaExpenses,

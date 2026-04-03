@@ -1,6 +1,8 @@
 {
   "name": "networth-tracker",
   "version": "0.1.0",
+  "description": "Net worth simulation app with Electron desktop packaging and Gemma integrations.",
+  "author": "mwmeyers03",
   "private": true,
   "homepage": "./",
   "main": "electron/main.js",
@@ -21,7 +23,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "electron:dev": "concurrently -k \"BROWSER=none react-scripts start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:dev": "concurrently -k \"cross-env BROWSER=none react-scripts start\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "react-scripts build && electron-builder --win --publish never",
     "electron:build:dir": "react-scripts build && electron-builder --dir --publish never"
   },
@@ -47,6 +49,7 @@
     "@tailwindcss/postcss": "^4.2.1",
     "autoprefixer": "^10.4.24",
     "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
     "electron": "^41.1.1",
     "electron-builder": "^26.8.1",
     "postcss": "^8.5.6",
@@ -54,11 +57,15 @@
     "wait-on": "^9.0.4"
   },
   "build": {
+    "extends": null,
     "appId": "com.mwmeyers03.networth-tracker",
     "productName": "Net Worth Tracker",
     "directories": {
       "buildResources": "public",
       "output": "dist"
+    },
+    "extraMetadata": {
+      "main": "electron/main.js"
     },
     "files": [
       "build/**/*",
@@ -67,6 +74,7 @@
       "package.json"
     ],
     "win": {
+      "signAndEditExecutable": false,
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ],

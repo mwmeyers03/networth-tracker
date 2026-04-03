@@ -1,70 +1,127 @@
-# Getting Started with Create React App
+# Net Worth Tracker (Web + Desktop EXE)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Net Worth Tracker is a CRA + Electron app for retirement forecasting, yearly ledger editing, and Monte Carlo analysis.
 
-## Available Scripts
+This repo supports:
 
-In the project directory, you can run:
+- Web deployment (Vercel/static host)
+- Desktop Windows installer (.exe) via Electron
+- Local Ollama/Gemma integration
+- AI Workbench tab for simulation prompts and structured app-state edits
 
-### `npm start`
+## Features
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- Dashboard, ledger, retirement, and budget views
+- Monte Carlo simulation with percentile fan chart
+- Ollama status badge in the top header
+- Settings drawer closes with the Esc key
+- AI Workbench:
+  - Run Gemma prompts in app
+  - Simulate strategy/risk scenarios
+  - Apply structured edits across app state (globals, expenses, retirement spend, ledger overrides)
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Prerequisites
 
-### `npm test`
+- Node.js 18+
+- npm 9+
+- Ollama installed locally for desktop/local AI mode
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Optional for web fallback:
 
-### `npm run build`
+- A cloud LLM proxy endpoint compatible with JSON request/response
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Environment setup
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Copy `.env.example` to `.env` (or `.env.local`) and configure values:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```bash
+REACT_APP_OLLAMA_BASE_URL=http://localhost:11434/api/generate
+REACT_APP_MODEL_CPU=gemma4:4b
+REACT_APP_MODEL_GPU=gemma4:26b-moe
+REACT_APP_SYSTEM_PROMPT=Never store sensitive data. Respond only with valid JSON not markdown fences.
+REACT_APP_LLM_MODE=auto
+REACT_APP_CLOUD_LLM_URL=
+```
 
-### `npm run eject`
+If using local Ollama, pull models once:
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+ollama pull gemma4:4b
+ollama pull gemma4:26b-moe
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Start Ollama:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```bash
+ollama serve
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Run in development
 
-## Learn More
+Install dependencies:
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+```bash
+npm install
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Web only:
 
-### Code Splitting
+```bash
+npm start
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+Desktop + web together:
 
-### Analyzing the Bundle Size
+```bash
+npm run electron:dev
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## Build Windows EXE
 
-### Making a Progressive Web App
+Generate installer:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```bash
+npm run electron:build
+```
 
-### Advanced Configuration
+Output folder:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+- `dist/Net Worth Tracker Setup*.exe`
 
-### Deployment
+Unpacked desktop build for quick testing:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+```bash
+npm run electron:build:dir
+```
 
-### `npm run build` fails to minify
+## AI Workbench usage
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Open the `AI` tab.
+
+1. Choose mode:
+   - `Simulate` for scenario analysis
+   - `Edit Program State` for direct structured updates
+2. Choose model tier:
+   - CPU model for speed
+   - GPU model for deeper planning
+3. Enter prompt and run query.
+4. If response includes `edits`, click `Apply Edits to App`.
+
+## Important behavior and limits
+
+- AI edits are applied to simulation state, not source code files.
+- AI can update:
+  - global assumptions
+  - Michael/Brianna expense categories
+  - retirement yearly spend
+  - yearly ledger overrides
+- Web parity is preserved for core functionality.
+- LLM provider parity is configurable:
+  - Desktop can use local Ollama
+  - Web can use local Ollama or cloud proxy fallback
+
+## Troubleshooting
+
+- If `No AI` badge appears, verify Ollama is running and reachable at `/api/tags`.
+- If a query fails, inspect the AI result panel for endpoint error details.
+- If EXE build fails on first run, re-run `npm install` then `npm run electron:build`.

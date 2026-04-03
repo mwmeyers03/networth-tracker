@@ -4,14 +4,16 @@ import Dashboard from './components/Dashboard';
 import DataLedger from './components/DataLedger';
 import Retirement from './components/Retirement';
 import Budget from './components/Budget';
+import AIWorkbench from './components/AIWorkbench';
 import Controls from './components/Controls';
-import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet, Cpu, WifiOff } from 'lucide-react';
+import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet, Cpu, WifiOff, Bot } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'ledger', label: 'Ledger', icon: Table2 },
   { id: 'retirement', label: 'Retirement', icon: TrendingUp },
   { id: 'budget', label: 'Budget', icon: Wallet },
+  { id: 'ai', label: 'AI', icon: Bot },
 ];
 
 // ── Ollama connectivity probe ─────────────────────────────────────────────────
@@ -127,6 +129,7 @@ function AppContent() {
         {activeTab === 'ledger' && <DataLedger />}
         {activeTab === 'retirement' && <Retirement />}
         {activeTab === 'budget' && <Budget />}
+        {activeTab === 'ai' && <AIWorkbench />}
       </main>
 
       {/* ── Settings Drawer (right side on desktop, full-screen on mobile) ── */}
