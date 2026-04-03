@@ -93,6 +93,71 @@ const extractResponseText = (payload) => {
   return JSON.stringify(payload);
 };
 
+const toMsFromNs = (value) => {
+  if (!Number.isFinite(value)) return null;
+  return Math.round(value / 1_000_000);
+};
+
+const extractOllamaMetrics = (payload) => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const promptTokens = Number.isFinite(payload.prompt_eval_count)
+    ? payload.prompt_eval_count
+    : null;
+  const generatedTokens = Number.isFinite(payload.eval_count)
+    ? payload.eval_count
+    : null;
+  const promptMs = toMsFromNs(payload.prompt_eval_duration);
+  const generationMs = toMsFromNs(payload.eval_duration);
+  const loadMs = toMsFromNs(payload.load_duration);
+  const totalMs = toMsFromNs(payload.total_duration);
+  const tokensPerSecond =
+    generatedTokens && generationMs && generationMs > 0
+      ? Math.round((generatedTokens / generationMs) * 1000)
+      : null;
+
+  if (
+    promptTokens === null &&
+    generatedTokens === null &&
+    promptMs === null &&
+    generationMs === null &&
+    loadMs === null &&
+    totalMs === null
+  ) {
+    return null;
+  }
+
+  return {
+    promptTokens,
+    generatedTokens,
+    promptMs,
+    generationMs,
+    loadMs,
+    totalMs,
+    tokensPerSecond,
+  };
+};
+
+const normalizeImages = (images) => {
+  if (!Array.isArray(images)) return [];
+
+  return images
+    .map((entry) => {
+      if (typeof entry !== 'string') return '';
+      const trimmed = entry.trim();
+      if (!trimmed) return '';
+      if (trimmed.startsWith('data:image/')) {
+        const idx = trimmed.indexOf(',');
+        return idx !== -1 ? trimmed.slice(idx + 1) : '';
+      }
+      return trimmed;
+    })
+    .filter(Boolean);
+};
+
+const looksLikeImageUnsupportedError = (message) =>
+  /(image|vision|multimodal|does not support)/i.test(String(message || ''));
+
 const resolveEndpoints = (mode) => {
   if (mode === 'local') {
     return [{ name: 'local', url: OLLAMA_BASE_URL }];
@@ -245,6 +310,7 @@ const postRequest = async (url, payload, timeoutMs) => {
  * @property {number} latencyMs
  * @property {'local'|'cloud'|null} endpoint
  * @property {string=} warning
+ * @property {{promptTokens?: number|null, generatedTokens?: number|null, promptMs?: number|null, generationMs?: number|null, loadMs?: number|null, totalMs?: number|null, tokensPerSecond?: number|null}=} metrics
  * @property {string=} raw
  */
 
@@ -262,7 +328,7 @@ const isBrowserMixedContentRisk = () => {
  * @template T
  * @param {string} prompt
  * @param {string} [model]
- * @param {{ expectJson?: boolean, timeoutMs?: number, mode?: 'local'|'cloud'|'auto', tier?: 'cpu'|'gpu' }} [options]
+ * @param {{ expectJson?: boolean, timeoutMs?: number, mode?: 'local'|'cloud'|'auto', tier?: 'cpu'|'gpu', images?: string[], generationOptions?: Record<string, number> }} [options]
  * @returns {Promise<AIResponse<T>>}
  */
 export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
@@ -303,6 +369,12 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
     };
   }
 
+  const imagePayloads = normalizeImages(options.images);
+  const generationOverrides =
+    options.generationOptions && typeof options.generationOptions === 'object'
+      ? options.generationOptions
+      : {};
+
   const errors = [];
   const startedAt = performance.now();
 
@@ -325,7 +397,7 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
         );
 
         try {
-          const requestPayload = {
+          const baseRequestPayload = {
             model: resolvedModel,
             prompt,
             system: SYSTEM_PROMPT,
@@ -336,12 +408,33 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
               temperature: OLLAMA_TEMPERATURE,
               num_ctx: OLLAMA_NUM_CTX,
               num_predict: OLLAMA_NUM_PREDICT,
+              ...generationOverrides,
             },
           };
 
-          const payload = await postRequest(endpoint.url, requestPayload, attemptTimeout);
+          const requestPayload = imagePayloads.length
+            ? { ...baseRequestPayload, images: imagePayloads }
+            : baseRequestPayload;
+
+          let payload;
+          try {
+            payload = await postRequest(endpoint.url, requestPayload, attemptTimeout);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (imagePayloads.length && looksLikeImageUnsupportedError(message)) {
+              payload = await postRequest(endpoint.url, baseRequestPayload, attemptTimeout);
+              warning = [
+                warning,
+                'Image input unsupported by this model; used text-only context.',
+              ].filter(Boolean).join(' ');
+            } else {
+              throw error;
+            }
+          }
+
           const raw = extractResponseText(payload).trim();
           const data = expectJson ? extractJsonCandidate(raw) : raw;
+          const metrics = extractOllamaMetrics(payload);
 
           return {
             success: true,
@@ -351,6 +444,7 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
             latencyMs: Math.round(performance.now() - startedAt),
             endpoint: endpoint.name,
             warning,
+            metrics,
             raw,
           };
         } catch (error) {

@@ -16,6 +16,34 @@ const path = require('path');
 const isDev = process.env.ELECTRON_START_URL !== undefined ||
   !app.isPackaged;
 
+function ensureDirSync(dirPath) {
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function configureRuntimeStorage() {
+  try {
+    // Keep dev and packaged app profiles separate to avoid cache lock/contention.
+    if (isDev) {
+      const devUserDataPath = path.join(app.getPath('appData'), 'NetWorthTracker-Dev');
+      ensureDirSync(devUserDataPath);
+      app.setPath('userData', devUserDataPath);
+    }
+
+    const cacheDir = path.join(app.getPath('userData'), 'Cache');
+    ensureDirSync(cacheDir);
+    app.commandLine.appendSwitch('disk-cache-dir', cacheDir);
+  } catch {
+    // If this fails, Electron falls back to its default storage locations.
+  }
+}
+
+configureRuntimeStorage();
+
 const OLLAMA_HEALTH_URL = 'http://127.0.0.1:11434/api/tags';
 const OLLAMA_STARTUP_WAIT_MS = 30000;
 
@@ -253,4 +281,25 @@ ipcMain.handle('app:get-install-info', () => {
     homePath: os.homedir(),
     platform: process.platform,
   };
+});
+
+ipcMain.handle('app:capture-page', async () => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (!win) {
+    return {
+      ok: false,
+      message: 'No active window to capture.',
+    };
+  }
+
+  try {
+    const image = await win.capturePage();
+    const dataUrl = `data:image/png;base64,${image.toPNG().toString('base64')}`;
+    return { ok: true, dataUrl };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Failed to capture page.',
+    };
+  }
 });

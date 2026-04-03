@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ensureOllamaRunning: () => ipcRenderer.invoke('ollama:ensure-running'),
   /** Returns packaged install/runtime paths */
   getInstallInfo: () => ipcRenderer.invoke('app:get-install-info'),
+  /** Captures the current app window as a PNG data URL */
+  capturePageSnapshot: () => ipcRenderer.invoke('app:capture-page'),
 });

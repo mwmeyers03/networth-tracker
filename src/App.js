@@ -6,7 +6,7 @@ import Retirement from './components/Retirement';
 import Budget from './components/Budget';
 import AIWorkbench from './components/AIWorkbench';
 import Controls from './components/Controls';
-import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet, Cpu, WifiOff, Bot } from 'lucide-react';
+import { Settings, X, LayoutDashboard, Table2, TrendingUp, Wallet, Cpu, WifiOff, Bot, MessageSquare } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -91,6 +91,7 @@ function OllamaStatusBadge({ status }) {
 function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const ollamaStatus = useOllamaStatus();
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -186,6 +187,42 @@ function AppContent() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Floating AI Dock ── */}
+      {!assistantOpen && (
+        <button
+          type="button"
+          onClick={() => setAssistantOpen(true)}
+          className="fixed bottom-5 right-5 z-40 w-12 h-12 rounded-full bg-sky-600 hover:bg-sky-500 border border-sky-400/30 shadow-lg flex items-center justify-center"
+          title="Open AI Copilot"
+          aria-label="Open AI Copilot"
+        >
+          <MessageSquare size={18} className="text-white" />
+        </button>
+      )}
+
+      {assistantOpen && (
+        <div className="fixed bottom-4 right-4 z-50 w-[430px] max-w-[calc(100vw-1.5rem)] h-[72vh] max-h-[760px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+          <div className="px-3 py-2 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-slate-200 text-sm font-semibold">
+              <Bot size={15} className="text-sky-400" />
+              AI Copilot Window
+            </div>
+            <button
+              type="button"
+              onClick={() => setAssistantOpen(false)}
+              className="w-7 h-7 rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 flex items-center justify-center"
+              title="Close AI window"
+              aria-label="Close AI window"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-3">
+            <AIWorkbench compact />
+          </div>
+        </div>
       )}
     </div>
   );
