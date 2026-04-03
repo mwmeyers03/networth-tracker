@@ -22,11 +22,15 @@ function useOllamaStatus() {
   const [status, setStatus] = useState('checking'); // 'checking' | 'online' | 'offline'
 
   const check = useCallback(async () => {
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), 3000);
     try {
-      const res = await fetch(OLLAMA_HEALTH_URL, { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(OLLAMA_HEALTH_URL, { signal: controller.signal });
       setStatus(res.ok ? 'online' : 'offline');
     } catch {
       setStatus('offline');
+    } finally {
+      clearTimeout(timerId);
     }
   }, []);
 

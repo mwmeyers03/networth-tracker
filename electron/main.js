@@ -26,7 +26,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // Allow fetch to localhost:11434 (Ollama) without CORS issues
+      // webSecurity is left at its default (true) to keep the sandbox intact.
+      // Ollama runs on localhost so the same-origin policy does not block it.
       webSecurity: true,
     },
   });
