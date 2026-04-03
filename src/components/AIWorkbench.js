@@ -91,6 +91,7 @@ const AIWorkbench = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [applyStatus, setApplyStatus] = useState('');
+  const [bootingOllama, setBootingOllama] = useState(false);
 
   const activeModel = modelTier === 'gpu' ? MODEL_GPU : MODEL_CPU;
 
@@ -159,12 +160,24 @@ const AIWorkbench = () => {
 
     const response = await queryGemma(assembledPrompt, activeModel, {
       expectJson: true,
-      timeoutMs: modelTier === 'gpu' ? 45000 : 20000,
+      timeoutMs: modelTier === 'gpu' ? 120000 : 45000,
       mode: isElectron ? 'local' : 'auto',
+      tier: modelTier,
     });
 
     setResult(response);
     setLoading(false);
+  };
+
+  const ensureOllama = async () => {
+    if (!window.electronAPI?.ensureOllamaRunning) return;
+    setBootingOllama(true);
+    const status = await window.electronAPI.ensureOllamaRunning().catch(() => ({
+      ok: false,
+      message: 'Failed to start Ollama from Electron.',
+    }));
+    setBootingOllama(false);
+    setApplyStatus(status.ok ? 'Ollama is ready.' : (status.message || 'Ollama is not available.'));
   };
 
   const canApplyEdits =
@@ -311,6 +324,16 @@ const AIWorkbench = () => {
           >
             Load Example
           </button>
+          {isElectron && (
+            <button
+              type="button"
+              onClick={ensureOllama}
+              disabled={bootingOllama}
+              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold"
+            >
+              {bootingOllama ? 'Starting Ollama...' : 'Start Ollama'}
+            </button>
+          )}
           {canApplyEdits && (
             <button
               type="button"

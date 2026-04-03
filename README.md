@@ -36,18 +36,19 @@ Copy `.env.example` to `.env` (or `.env.local`) and configure values:
 
 ```bash
 REACT_APP_OLLAMA_BASE_URL=http://localhost:11434/api/generate
-REACT_APP_MODEL_CPU=gemma4:4b
-REACT_APP_MODEL_GPU=gemma4:26b-moe
+REACT_APP_MODEL_CPU=gemma4:e4b-it-q4_K_M
+REACT_APP_MODEL_GPU=gemma4:26b-a4b-it-q4_K_M
 REACT_APP_SYSTEM_PROMPT=Never store sensitive data. Respond only with valid JSON not markdown fences.
-REACT_APP_LLM_MODE=auto
+REACT_APP_LLM_MODE=local
+REACT_APP_OLLAMA_KEEP_ALIVE=30m
 REACT_APP_CLOUD_LLM_URL=
 ```
 
 If using local Ollama, pull models once:
 
 ```bash
-ollama pull gemma4:4b
-ollama pull gemma4:26b-moe
+ollama pull gemma4:e4b-it-q4_K_M
+ollama pull gemma4:26b-a4b-it-q4_K_M
 ```
 
 Start Ollama:
@@ -87,6 +88,11 @@ npm run electron:build
 Output folder:
 
 - `dist/Net Worth Tracker Setup*.exe`
+- `dist/win-unpacked/Net Worth Tracker.exe` (portable, no installer)
+
+Installed app location (default NSIS per-user install):
+
+- `%LocalAppData%\Programs\Net Worth Tracker\Net Worth Tracker.exe`
 
 Unpacked desktop build for quick testing:
 
@@ -125,3 +131,5 @@ Open the `AI` tab.
 - If `No AI` badge appears, verify Ollama is running and reachable at `/api/tags`.
 - If a query fails, inspect the AI result panel for endpoint error details.
 - If EXE build fails on first run, re-run `npm install` then `npm run electron:build`.
+- Large first-query latency is normal when a model is cold-loading into VRAM/RAM. Keep-alive is enabled (`REACT_APP_OLLAMA_KEEP_ALIVE=30m`) so subsequent queries are much faster.
+- If web deployment is HTTPS and local Ollama URL is `http://localhost`, browser mixed-content rules block requests. Use desktop EXE for local Ollama, or configure `REACT_APP_CLOUD_LLM_URL` for web fallback.

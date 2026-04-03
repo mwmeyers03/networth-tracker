@@ -7,11 +7,139 @@
  *   Build: npm run electron:build  (builds CRA, then packages to dist/.exe)
  */
 
-const { app, BrowserWindow, shell, Menu } = require('electron');
+const { app, BrowserWindow, shell, Menu, ipcMain } = require('electron');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const isDev = process.env.ELECTRON_START_URL !== undefined ||
   !app.isPackaged;
+
+const OLLAMA_HEALTH_URL = 'http://127.0.0.1:11434/api/tags';
+const OLLAMA_STARTUP_WAIT_MS = 30000;
+
+let ollamaStartInFlight = null;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isOllamaReachable(timeoutMs = 1500) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(OLLAMA_HEALTH_URL, { signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function buildOllamaCommandCandidates() {
+  const candidates = [];
+
+  if (process.env.OLLAMA_EXECUTABLE) {
+    candidates.push(process.env.OLLAMA_EXECUTABLE);
+  }
+
+  candidates.push('ollama');
+
+  if (process.platform === 'win32') {
+    if (process.env.LOCALAPPDATA) {
+      candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe'));
+    }
+    candidates.push('C:\\Program Files\\Ollama\\ollama.exe');
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function spawnOllamaServe(command) {
+  const spawnOptions = {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  };
+
+  try {
+    const child = command === 'ollama'
+      ? spawn(command, ['serve'], { ...spawnOptions, shell: true })
+      : spawn(command, ['serve'], spawnOptions);
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureOllamaRunning() {
+  if (await isOllamaReachable()) {
+    return {
+      ok: true,
+      alreadyRunning: true,
+      message: 'Ollama already running.',
+    };
+  }
+
+  if (ollamaStartInFlight) return ollamaStartInFlight;
+
+  ollamaStartInFlight = (async () => {
+    const candidates = buildOllamaCommandCandidates();
+    let started = false;
+    let usedCommand = null;
+
+    for (const command of candidates) {
+      if (command !== 'ollama' && !fs.existsSync(command)) continue;
+      if (spawnOllamaServe(command)) {
+        started = true;
+        usedCommand = command;
+        break;
+      }
+    }
+
+    if (!started) {
+      return {
+        ok: false,
+        alreadyRunning: false,
+        started: false,
+        message:
+          'Ollama executable not found. Install Ollama or set OLLAMA_EXECUTABLE.',
+      };
+    }
+
+    const deadline = Date.now() + OLLAMA_STARTUP_WAIT_MS;
+    while (Date.now() < deadline) {
+      await delay(1000);
+      if (await isOllamaReachable()) {
+        return {
+          ok: true,
+          alreadyRunning: false,
+          started: true,
+          command: usedCommand,
+          message: 'Ollama started successfully.',
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      alreadyRunning: false,
+      started: true,
+      command: usedCommand,
+      message: 'Ollama did not become ready in time.',
+    };
+  })();
+
+  try {
+    return await ollamaStartInFlight;
+  } finally {
+    ollamaStartInFlight = null;
+  }
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -97,6 +225,9 @@ function buildMenu() {
 }
 
 app.whenReady().then(() => {
+  // Fire-and-forget startup so AI features work without manual Ollama launch.
+  ensureOllamaRunning().catch(() => null);
+
   buildMenu();
   createWindow();
 
@@ -107,4 +238,19 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+ipcMain.handle('ollama:ensure-running', async () => {
+  return ensureOllamaRunning();
+});
+
+ipcMain.handle('app:get-install-info', () => {
+  return {
+    isPackaged: app.isPackaged,
+    exePath: app.getPath('exe'),
+    appPath: app.getAppPath(),
+    userDataPath: app.getPath('userData'),
+    homePath: os.homedir(),
+    platform: process.platform,
+  };
 });

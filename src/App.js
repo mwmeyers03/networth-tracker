@@ -21,7 +21,7 @@ const OLLAMA_BASE_URL = process.env.REACT_APP_OLLAMA_BASE_URL || 'http://localho
 const OLLAMA_HEALTH_URL = OLLAMA_BASE_URL.replace('/api/generate', '/api/tags');
 
 function useOllamaStatus() {
-  const [status, setStatus] = useState('checking'); // 'checking' | 'online' | 'offline'
+  const [status, setStatus] = useState('checking'); // 'checking' | 'starting' | 'online' | 'offline'
 
   const check = useCallback(async () => {
     const controller = new AbortController();
@@ -37,9 +37,22 @@ function useOllamaStatus() {
   }, []);
 
   useEffect(() => {
-    check();
+    let mounted = true;
+
+    const bootAndCheck = async () => {
+      if (window.electronAPI?.ensureOllamaRunning) {
+        if (mounted) setStatus('starting');
+        await window.electronAPI.ensureOllamaRunning().catch(() => null);
+      }
+      if (mounted) check();
+    };
+
+    bootAndCheck();
     const id = setInterval(check, 30_000);
-    return () => clearInterval(id);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
   }, [check]);
 
   return status;
@@ -47,6 +60,18 @@ function useOllamaStatus() {
 
 function OllamaStatusBadge({ status }) {
   if (status === 'checking') return null;
+  if (status === 'starting') {
+    return (
+      <div
+        title="Starting Ollama local server"
+        className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-sky-500/10 border-sky-500/30 text-sky-300"
+      >
+        <Cpu size={10} />
+        Starting AI
+      </div>
+    );
+  }
+
   const online = status === 'online';
   return (
     <div

@@ -15,20 +15,25 @@ const OLLAMA_BASE_URL =
   'http://localhost:11434/api/generate';
 const OLLAMA_HEALTH_URL = OLLAMA_BASE_URL.replace('/api/generate', '/api/tags');
 
-const MODEL_CPU = process.env.REACT_APP_MODEL_CPU || 'gemma4:4b';
-const MODEL_GPU = process.env.REACT_APP_MODEL_GPU || 'gemma4:26b-moe';
+const MODEL_CPU = process.env.REACT_APP_MODEL_CPU || 'gemma4:e4b-it-q4_K_M';
+const MODEL_GPU = process.env.REACT_APP_MODEL_GPU || 'gemma4:26b-a4b-it-q4_K_M';
 const SYSTEM_PROMPT =
   process.env.REACT_APP_SYSTEM_PROMPT ||
   'Never store sensitive data. Respond only with valid JSON not markdown fences.';
 
 const LLM_MODE = (process.env.REACT_APP_LLM_MODE || 'auto').toLowerCase();
 const CLOUD_LLM_URL = process.env.REACT_APP_CLOUD_LLM_URL || '';
+const OLLAMA_KEEP_ALIVE = process.env.REACT_APP_OLLAMA_KEEP_ALIVE || '30m';
+const OLLAMA_TEMPERATURE = Number(process.env.REACT_APP_OLLAMA_TEMPERATURE || 0.15);
+const OLLAMA_NUM_CTX = Number(process.env.REACT_APP_OLLAMA_NUM_CTX || 2048);
+const OLLAMA_NUM_PREDICT = Number(process.env.REACT_APP_OLLAMA_NUM_PREDICT || 850);
 
 /** true when running inside the Electron desktop shell */
 export const isElectron =
   typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 45000;
+const MAX_TIMEOUT_MS = 180000;
 const MODEL_CACHE_TTL_MS = 60000;
 
 let modelCache = {
@@ -101,6 +106,28 @@ const resolveEndpoints = (mode) => {
   return endpoints;
 };
 
+const uniqueStrings = (arr) => [...new Set(arr.filter(Boolean))];
+
+const getTierFallbackModels = (tier) => {
+  if (tier === 'gpu') {
+    return [
+      MODEL_GPU,
+      'gemma4:26b-a4b-it-q4_K_M',
+      'gemma4:26b-moe',
+      'gemma4:e4b-it-q4_K_M',
+      'gemma4:4b',
+      'gemma4:e2b',
+    ];
+  }
+
+  return [
+    MODEL_CPU,
+    'gemma4:e4b-it-q4_K_M',
+    'gemma4:4b',
+    'gemma4:e2b',
+  ];
+};
+
 const parseBillionSize = (model) => {
   const direct = String(model?.details?.parameter_size || '').match(/([0-9]+(?:\.[0-9]+)?)B/i);
   if (direct) return Number(direct[1]);
@@ -137,28 +164,41 @@ const fetchLocalModelCatalog = async (timeoutMs) => {
   }
 };
 
-const resolveLocalModel = async (requestedModel, timeoutMs) => {
+const resolveLocalModelsToTry = async (requestedModel, timeoutMs, tier = 'cpu') => {
   const models = await fetchLocalModelCatalog(timeoutMs);
-  if (!models.length) return { model: requestedModel, note: '' };
+  if (!models.length) {
+    return { models: [requestedModel], note: '' };
+  }
 
   const names = models.map((m) => m.name);
-  if (names.includes(requestedModel)) {
-    return { model: requestedModel, note: '' };
+
+  const preferredByName = uniqueStrings([
+    requestedModel,
+    ...getTierFallbackModels(tier),
+  ]).filter((candidate) => names.includes(candidate));
+
+  if (preferredByName.length > 0) {
+    const note = preferredByName[0] === requestedModel
+      ? ''
+      : `Requested model "${requestedModel}" not found. Using "${preferredByName[0]}".`;
+    return { models: preferredByName.slice(0, 4), note };
   }
 
   const gemmaModels = models.filter((m) => String(m.name).toLowerCase().includes('gemma'));
   const candidates = gemmaModels.length > 0 ? gemmaModels : models;
 
   const sorted = [...candidates].sort((a, b) => parseBillionSize(a) - parseBillionSize(b));
-  const fallback =
-    requestedModel === MODEL_GPU
-      ? sorted[sorted.length - 1]
-      : sorted[0];
+  const order = tier === 'gpu' ? [...sorted].reverse() : sorted;
+  const fallbackModels = order.map((m) => m.name).slice(0, 4);
+
+  if (fallbackModels.length === 0) {
+    return { models: [requestedModel], note: '' };
+  }
 
   return {
-    model: fallback?.name || requestedModel,
-    note: fallback?.name
-      ? `Requested model "${requestedModel}" not found. Using "${fallback.name}".`
+    models: fallbackModels,
+    note: fallbackModels[0]
+      ? `Requested model "${requestedModel}" not found. Using "${fallbackModels[0]}".`
       : '',
   };
 };
@@ -168,12 +208,20 @@ const postRequest = async (url, payload, timeoutMs) => {
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`Request timed out after ${timeoutMs} ms`);
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText);
@@ -200,6 +248,13 @@ const postRequest = async (url, payload, timeoutMs) => {
  * @property {string=} raw
  */
 
+const isBrowserMixedContentRisk = () => {
+  if (typeof window === 'undefined') return false;
+  if (isElectron) return false;
+  if (window.location.protocol !== 'https:') return false;
+  return /^http:\/\//i.test(OLLAMA_BASE_URL);
+};
+
 /**
  * Send a prompt to a configured LLM endpoint and parse JSON safely.
  * Never throws. All failures are returned in AIResponse.error.
@@ -207,18 +262,30 @@ const postRequest = async (url, payload, timeoutMs) => {
  * @template T
  * @param {string} prompt
  * @param {string} [model]
- * @param {{ expectJson?: boolean, timeoutMs?: number, mode?: 'local'|'cloud'|'auto' }} [options]
+ * @param {{ expectJson?: boolean, timeoutMs?: number, mode?: 'local'|'cloud'|'auto', tier?: 'cpu'|'gpu' }} [options]
  * @returns {Promise<AIResponse<T>>}
  */
 export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
   const expectJson = options.expectJson ?? true;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = Math.max(10000, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const mode = (options.mode || LLM_MODE || 'auto').toLowerCase();
+  const tier = options.tier || (model === MODEL_GPU ? 'gpu' : 'cpu');
 
   if (!prompt || !String(prompt).trim()) {
     return {
       success: false,
       error: 'Prompt cannot be empty.',
+      model,
+      latencyMs: 0,
+      endpoint: null,
+    };
+  }
+
+  if ((mode === 'local' || mode === 'auto') && isBrowserMixedContentRisk() && !CLOUD_LLM_URL) {
+    return {
+      success: false,
+      error:
+        'Web app is running on HTTPS while Ollama URL is HTTP localhost. Browser mixed-content security blocks this call. Use desktop EXE for local Ollama or configure REACT_APP_CLOUD_LLM_URL for web fallback.',
       model,
       latencyMs: 0,
       endpoint: null,
@@ -241,37 +308,56 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
 
   for (const endpoint of endpoints) {
     try {
-      let resolvedModel = model;
       let warning = '';
+      let modelCandidates = [model];
 
       if (endpoint.name === 'local') {
-        const resolved = await resolveLocalModel(model, timeoutMs);
-        resolvedModel = resolved.model;
+        const resolved = await resolveLocalModelsToTry(model, Math.min(timeoutMs, 8000), tier);
+        modelCandidates = resolved.models;
         warning = resolved.note;
       }
 
-      const requestPayload = {
-        model: resolvedModel,
-        prompt,
-        system: SYSTEM_PROMPT,
-        stream: false,
-        format: expectJson ? 'json' : undefined,
-      };
+      for (let i = 0; i < modelCandidates.length; i += 1) {
+        const resolvedModel = modelCandidates[i];
+        const attemptTimeout = Math.min(
+          timeoutMs + i * (tier === 'gpu' ? 30000 : 12000),
+          MAX_TIMEOUT_MS
+        );
 
-      const payload = await postRequest(endpoint.url, requestPayload, timeoutMs);
-      const raw = extractResponseText(payload).trim();
-      const data = expectJson ? extractJsonCandidate(raw) : raw;
+        try {
+          const requestPayload = {
+            model: resolvedModel,
+            prompt,
+            system: SYSTEM_PROMPT,
+            stream: false,
+            format: expectJson ? 'json' : undefined,
+            keep_alive: OLLAMA_KEEP_ALIVE,
+            options: {
+              temperature: OLLAMA_TEMPERATURE,
+              num_ctx: OLLAMA_NUM_CTX,
+              num_predict: OLLAMA_NUM_PREDICT,
+            },
+          };
 
-      return {
-        success: true,
-        data,
-        model,
-        resolvedModel,
-        latencyMs: Math.round(performance.now() - startedAt),
-        endpoint: endpoint.name,
-        warning,
-        raw,
-      };
+          const payload = await postRequest(endpoint.url, requestPayload, attemptTimeout);
+          const raw = extractResponseText(payload).trim();
+          const data = expectJson ? extractJsonCandidate(raw) : raw;
+
+          return {
+            success: true,
+            data,
+            model,
+            resolvedModel,
+            latencyMs: Math.round(performance.now() - startedAt),
+            endpoint: endpoint.name,
+            warning,
+            raw,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push(`${endpoint.name}/${resolvedModel}: ${message}`);
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(`${endpoint.name}: ${message}`);
@@ -329,6 +415,8 @@ export {
   MODEL_GPU,
   SYSTEM_PROMPT,
   OLLAMA_BASE_URL,
+  OLLAMA_HEALTH_URL,
   LLM_MODE,
   CLOUD_LLM_URL,
+  OLLAMA_KEEP_ALIVE,
 };
