@@ -23,6 +23,12 @@ const SYSTEM_PROMPT =
 
 const LLM_MODE = (process.env.REACT_APP_LLM_MODE || 'auto').toLowerCase();
 const CLOUD_LLM_URL = process.env.REACT_APP_CLOUD_LLM_URL || '';
+const FREE_WEB_LLM_URL =
+  process.env.REACT_APP_FREE_WEB_LLM_URL ||
+  'https://text.pollinations.ai/openai';
+const FREE_WEB_LLM_MODEL = process.env.REACT_APP_FREE_WEB_LLM_MODEL || 'openai';
+const ENABLE_FREE_WEB_LLM =
+  String(process.env.REACT_APP_ENABLE_FREE_WEB_LLM ?? 'true').toLowerCase() !== 'false';
 const OLLAMA_KEEP_ALIVE = process.env.REACT_APP_OLLAMA_KEEP_ALIVE || '30m';
 const OLLAMA_TEMPERATURE = Number(process.env.REACT_APP_OLLAMA_TEMPERATURE || 0.15);
 const OLLAMA_NUM_CTX = Number(process.env.REACT_APP_OLLAMA_NUM_CTX || 2048);
@@ -85,6 +91,11 @@ const extractJsonCandidate = (raw) => {
 const extractResponseText = (payload) => {
   if (typeof payload === 'string') return payload;
   if (!payload || typeof payload !== 'object') return '';
+  if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+    const first = payload.choices[0] || {};
+    if (typeof first?.message?.content === 'string') return first.message.content;
+    if (typeof first?.text === 'string') return first.text;
+  }
   if (typeof payload.response === 'string') return payload.response;
   if (typeof payload.output === 'string') return payload.output;
   if (typeof payload.text === 'string') return payload.text;
@@ -138,6 +149,33 @@ const extractOllamaMetrics = (payload) => {
   };
 };
 
+const extractCloudMetrics = (payload) => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  if (payload.usage && typeof payload.usage === 'object') {
+    const promptTokens = Number.isFinite(payload.usage.prompt_tokens)
+      ? payload.usage.prompt_tokens
+      : null;
+    const generatedTokens = Number.isFinite(payload.usage.completion_tokens)
+      ? payload.usage.completion_tokens
+      : null;
+
+    if (promptTokens !== null || generatedTokens !== null) {
+      return {
+        promptTokens,
+        generatedTokens,
+        promptMs: null,
+        generationMs: null,
+        loadMs: null,
+        totalMs: null,
+        tokensPerSecond: null,
+      };
+    }
+  }
+
+  return null;
+};
+
 const normalizeImages = (images) => {
   if (!Array.isArray(images)) return [];
 
@@ -158,17 +196,59 @@ const normalizeImages = (images) => {
 const looksLikeImageUnsupportedError = (message) =>
   /(image|vision|multimodal|does not support)/i.test(String(message || ''));
 
-const resolveEndpoints = (mode) => {
+const isWebRuntime = () =>
+  typeof window !== 'undefined' && !isElectron;
+
+const resolveEndpoints = (mode, { mixedContentRisk = false } = {}) => {
+  const freeWeb =
+    isWebRuntime() && ENABLE_FREE_WEB_LLM && FREE_WEB_LLM_URL
+      ? [{ name: 'free-web', url: FREE_WEB_LLM_URL }]
+      : [];
+
   if (mode === 'local') {
-    return [{ name: 'local', url: OLLAMA_BASE_URL }];
-  }
-  if (mode === 'cloud') {
-    return CLOUD_LLM_URL ? [{ name: 'cloud', url: CLOUD_LLM_URL }] : [];
+    return mixedContentRisk ? [] : [{ name: 'local', url: OLLAMA_BASE_URL }];
   }
 
-  const endpoints = [{ name: 'local', url: OLLAMA_BASE_URL }];
+  if (mode === 'cloud') {
+    if (CLOUD_LLM_URL) return [{ name: 'cloud', url: CLOUD_LLM_URL }];
+    return freeWeb;
+  }
+
+  const endpoints = [];
+  if (!mixedContentRisk) endpoints.push({ name: 'local', url: OLLAMA_BASE_URL });
   if (CLOUD_LLM_URL) endpoints.push({ name: 'cloud', url: CLOUD_LLM_URL });
+  endpoints.push(...freeWeb);
   return endpoints;
+};
+
+const buildTextFallbackData = (raw) => {
+  const lines = String(raw || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const paragraph = lines.join(' ');
+  const details = lines.length > 0
+    ? lines.slice(0, 18)
+    : paragraph
+      ? [paragraph]
+      : [];
+
+  return {
+    answer: {
+      directAnswer: paragraph || 'No model content returned.',
+      executiveSummary: paragraph ? paragraph.slice(0, 420) : '',
+      deepAnalysis: details,
+      scenarioResults: [],
+      assumptions: [],
+      risks: [],
+      recommendations: [],
+      nextActions: [],
+      warnings: [],
+      followUps: [],
+    },
+    edits: {},
+  };
 };
 
 const uniqueStrings = (arr) => [...new Set(arr.filter(Boolean))];
@@ -308,7 +388,7 @@ const postRequest = async (url, payload, timeoutMs) => {
  * @property {string} model
  * @property {string=} resolvedModel
  * @property {number} latencyMs
- * @property {'local'|'cloud'|null} endpoint
+ * @property {'local'|'cloud'|'free-web'|null} endpoint
  * @property {string=} warning
  * @property {{promptTokens?: number|null, generatedTokens?: number|null, promptMs?: number|null, generationMs?: number|null, loadMs?: number|null, totalMs?: number|null, tokensPerSecond?: number|null}=} metrics
  * @property {string=} raw
@@ -347,22 +427,25 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
     };
   }
 
-  if ((mode === 'local' || mode === 'auto') && isBrowserMixedContentRisk() && !CLOUD_LLM_URL) {
+  const mixedContentRisk = isBrowserMixedContentRisk();
+
+  if (mode === 'local' && mixedContentRisk) {
     return {
       success: false,
       error:
-        'Web app is running on HTTPS while Ollama URL is HTTP localhost. Browser mixed-content security blocks this call. Use desktop EXE for local Ollama or configure REACT_APP_CLOUD_LLM_URL for web fallback.',
+        'Web app is running on HTTPS while Ollama URL is HTTP localhost. Browser mixed-content security blocks local mode. Switch to auto/cloud mode, desktop EXE, or configure REACT_APP_CLOUD_LLM_URL.',
       model,
       latencyMs: 0,
       endpoint: null,
     };
   }
 
-  const endpoints = resolveEndpoints(mode);
+  const endpoints = resolveEndpoints(mode, { mixedContentRisk });
   if (!endpoints.length) {
     return {
       success: false,
-      error: 'No LLM endpoint configured. Set REACT_APP_OLLAMA_BASE_URL or REACT_APP_CLOUD_LLM_URL.',
+      error:
+        'No LLM endpoint configured. Set REACT_APP_CLOUD_LLM_URL, run desktop EXE for local Ollama, or enable REACT_APP_ENABLE_FREE_WEB_LLM.',
       model,
       latencyMs: 0,
       endpoint: null,
@@ -387,6 +470,9 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
         const resolved = await resolveLocalModelsToTry(model, Math.min(timeoutMs, 8000), tier);
         modelCandidates = resolved.models;
         warning = resolved.note;
+      } else if (endpoint.name === 'free-web') {
+        modelCandidates = [FREE_WEB_LLM_MODEL];
+        warning = 'Using free HTTPS web fallback provider.';
       }
 
       for (let i = 0; i < modelCandidates.length; i += 1) {
@@ -397,23 +483,63 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
         );
 
         try {
-          const baseRequestPayload = {
-            model: resolvedModel,
-            prompt,
-            system: SYSTEM_PROMPT,
-            stream: false,
-            format: expectJson ? 'json' : undefined,
-            keep_alive: OLLAMA_KEEP_ALIVE,
-            options: {
-              temperature: OLLAMA_TEMPERATURE,
-              num_ctx: OLLAMA_NUM_CTX,
-              num_predict: OLLAMA_NUM_PREDICT,
-              ...generationOverrides,
-            },
-          };
+          const {
+            reasoning_effort: reasoningEffortOverride,
+            max_tokens: maxTokensOverride,
+            ...ollamaGenerationOverrides
+          } = generationOverrides;
+
+          const baseRequestPayload = endpoint.name === 'free-web'
+            ? {
+                model: resolvedModel,
+                messages: [
+                  { role: 'system', content: SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: imagePayloads.length
+                      ? [
+                          { type: 'text', text: prompt },
+                          ...imagePayloads.map((imageBase64) => ({
+                            type: 'image_url',
+                            image_url: { url: `data:image/png;base64,${imageBase64}` },
+                          })),
+                        ]
+                      : prompt,
+                  },
+                ],
+                stream: false,
+                temperature:
+                  Number.isFinite(generationOverrides.temperature)
+                    ? generationOverrides.temperature
+                    : OLLAMA_TEMPERATURE,
+                max_tokens:
+                  Number.isFinite(maxTokensOverride)
+                    ? maxTokensOverride
+                    : Number.isFinite(generationOverrides.num_predict)
+                      ? generationOverrides.num_predict
+                      : OLLAMA_NUM_PREDICT,
+                response_format: expectJson ? { type: 'json_object' } : undefined,
+                reasoning_effort: reasoningEffortOverride,
+              }
+            : {
+                model: resolvedModel,
+                prompt,
+                system: SYSTEM_PROMPT,
+                stream: false,
+                format: expectJson ? 'json' : undefined,
+                keep_alive: OLLAMA_KEEP_ALIVE,
+                options: {
+                  temperature: OLLAMA_TEMPERATURE,
+                  num_ctx: OLLAMA_NUM_CTX,
+                  num_predict: OLLAMA_NUM_PREDICT,
+                  ...ollamaGenerationOverrides,
+                },
+              };
 
           const requestPayload = imagePayloads.length
-            ? { ...baseRequestPayload, images: imagePayloads }
+            ? endpoint.name === 'free-web'
+              ? baseRequestPayload
+              : { ...baseRequestPayload, images: imagePayloads }
             : baseRequestPayload;
 
           let payload;
@@ -433,8 +559,24 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
           }
 
           const raw = extractResponseText(payload).trim();
-          const data = expectJson ? extractJsonCandidate(raw) : raw;
-          const metrics = extractOllamaMetrics(payload);
+          let data;
+          if (expectJson) {
+            try {
+              data = extractJsonCandidate(raw);
+            } catch {
+              data = buildTextFallbackData(raw);
+              warning = [
+                warning,
+                'Model returned non-JSON content; converted to text fallback structure.',
+              ].filter(Boolean).join(' ');
+            }
+          } else {
+            data = raw;
+          }
+
+          const metrics = endpoint.name === 'local'
+            ? extractOllamaMetrics(payload)
+            : extractCloudMetrics(payload);
 
           return {
             success: true,
@@ -512,5 +654,8 @@ export {
   OLLAMA_HEALTH_URL,
   LLM_MODE,
   CLOUD_LLM_URL,
+  FREE_WEB_LLM_URL,
+  FREE_WEB_LLM_MODEL,
+  ENABLE_FREE_WEB_LLM,
   OLLAMA_KEEP_ALIVE,
 };

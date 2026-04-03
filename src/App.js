@@ -19,11 +19,31 @@ const TABS = [
 // ── Ollama connectivity probe ─────────────────────────────────────────────────
 const OLLAMA_BASE_URL = process.env.REACT_APP_OLLAMA_BASE_URL || 'http://localhost:11434/api/generate';
 const OLLAMA_HEALTH_URL = OLLAMA_BASE_URL.replace('/api/generate', '/api/tags');
+const ENABLE_FREE_WEB_LLM =
+  String(process.env.REACT_APP_ENABLE_FREE_WEB_LLM ?? 'true').toLowerCase() !== 'false';
+const HAS_CLOUD_ENDPOINT = Boolean(process.env.REACT_APP_CLOUD_LLM_URL);
+
+const isElectronRuntime =
+  typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+
+const isBrowserMixedContentRisk = () => {
+  if (typeof window === 'undefined') return false;
+  if (isElectronRuntime) return false;
+  if (window.location.protocol !== 'https:') return false;
+  return /^http:\/\//i.test(OLLAMA_BASE_URL);
+};
+
+const hasWebFallback = HAS_CLOUD_ENDPOINT || ENABLE_FREE_WEB_LLM;
 
 function useOllamaStatus() {
-  const [status, setStatus] = useState('checking'); // 'checking' | 'starting' | 'online' | 'offline'
+  const [status, setStatus] = useState('checking'); // 'checking' | 'starting' | 'online' | 'offline' | 'cloud'
 
   const check = useCallback(async () => {
+    if (isBrowserMixedContentRisk()) {
+      setStatus(hasWebFallback ? 'cloud' : 'offline');
+      return;
+    }
+
     const controller = new AbortController();
     const timerId = setTimeout(() => controller.abort(), 3000);
     try {
@@ -68,6 +88,18 @@ function OllamaStatusBadge({ status }) {
       >
         <Cpu size={10} />
         Starting AI
+      </div>
+    );
+  }
+
+  if (status === 'cloud') {
+    return (
+      <div
+        title="Using HTTPS web AI fallback"
+        className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-cyan-500/10 border-cyan-500/30 text-cyan-300"
+      >
+        <Bot size={10} />
+        Web AI
       </div>
     );
   }

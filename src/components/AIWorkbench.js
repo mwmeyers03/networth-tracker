@@ -19,7 +19,6 @@ import {
 import { useData } from '../contexts/DataContext';
 import {
   isElectron,
-  LLM_MODE,
   MODEL_CPU,
   MODEL_GPU,
   queryGemma,
@@ -61,34 +60,55 @@ const MODE_ITEMS = [
 const SPEED_PRESETS = {
   turbo: {
     label: 'Turbo',
-    summary: 'Shortest answers, lowest latency',
-    timeoutMs: 35000,
-    maxKeyPoints: 3,
-    cpuOptions: { num_predict: 220, num_ctx: 1024, temperature: 0.05 },
-    gpuOptions: { num_predict: 300, num_ctx: 1536, temperature: 0.05 },
+    summary: 'Fast but still detailed',
+    timeoutMs: 45000,
+    minAnalysisPoints: 5,
+    reasoningEffort: 'low',
+    cpuOptions: { num_predict: 420, num_ctx: 1536, temperature: 0.08 },
+    gpuOptions: { num_predict: 620, num_ctx: 2048, temperature: 0.08 },
   },
   balanced: {
     label: 'Balanced',
-    summary: 'Good quality and speed',
-    timeoutMs: 60000,
-    maxKeyPoints: 5,
-    cpuOptions: { num_predict: 420, num_ctx: 1536, temperature: 0.12 },
-    gpuOptions: { num_predict: 560, num_ctx: 2048, temperature: 0.12 },
+    summary: 'Thorough without excessive latency',
+    timeoutMs: 85000,
+    minAnalysisPoints: 8,
+    reasoningEffort: 'medium',
+    cpuOptions: { num_predict: 760, num_ctx: 2048, temperature: 0.1 },
+    gpuOptions: { num_predict: 1000, num_ctx: 3072, temperature: 0.1 },
   },
   deep: {
     label: 'Deep',
-    summary: 'Most thorough, highest latency',
-    timeoutMs: 120000,
-    maxKeyPoints: 7,
-    cpuOptions: { num_predict: 700, num_ctx: 2048, temperature: 0.18 },
-    gpuOptions: { num_predict: 1000, num_ctx: 3072, temperature: 0.18 },
+    summary: 'Most comprehensive analysis',
+    timeoutMs: 140000,
+    minAnalysisPoints: 12,
+    reasoningEffort: 'high',
+    cpuOptions: { num_predict: 1100, num_ctx: 3072, temperature: 0.12 },
+    gpuOptions: { num_predict: 1500, num_ctx: 4096, temperature: 0.12 },
   },
 };
 
 const toList = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) {
-    return value.map((item) => String(item || '').trim()).filter(Boolean);
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item.trim();
+        if (item && typeof item === 'object') {
+          return Object.entries(item)
+            .map(([key, val]) => `${key}: ${typeof val === 'string' ? val : JSON.stringify(val)}`)
+            .join(' | ')
+            .trim();
+        }
+        return String(item || '').trim();
+      })
+      .filter(Boolean);
+  }
+  if (value && typeof value === 'object') {
+    const asLine = Object.entries(value)
+      .map(([key, val]) => `${key}: ${typeof val === 'string' ? val : JSON.stringify(val)}`)
+      .join(' | ')
+      .trim();
+    return asLine ? [asLine] : [];
   }
   if (typeof value === 'string' && value.trim()) return [value.trim()];
   return [];
@@ -131,17 +151,25 @@ const summarizeEdits = (edits) => {
 const buildInstructions = (mode, speedPreset) => {
   const base = [
     'Return only valid JSON. Do not include markdown fences.',
-    'Use concise, actionable wording.',
-    `Keep summary to at most 2 sentences and keyPoints to at most ${speedPreset.maxKeyPoints} bullets.`,
+    'Give a thorough answer that directly addresses the user request.',
+    'Do not provide generic filler. Tie every recommendation to the provided plan context.',
+    `Include at least ${speedPreset.minAnalysisPoints} concrete items in answer.deepAnalysis.`,
+    'If a value is uncertain, state the assumption and still provide a best-effort estimate.',
     'When editing, only include fields that should actually change.',
     '',
     'Output shape:',
     '{',
     '  "answer": {',
-    '    "summary": "string",',
-    '    "keyPoints": ["string"],',
-    '    "warnings": ["string"],',
-    '    "nextActions": ["string"]',
+    '    "directAnswer": "string",',
+    '    "executiveSummary": "string",',
+    '    "deepAnalysis": ["string"],',
+    '    "scenarioResults": ["string"],',
+    '    "assumptions": ["string"],',
+    '    "risks": ["string"],',
+    '    "recommendations": ["string"],',
+    '    "nextActions": ["string"],',
+    '    "followUps": ["string"],',
+    '    "warnings": ["string"]',
     '  },',
     '  "edits": {',
     '    "globals": { ... },',
@@ -156,11 +184,12 @@ const buildInstructions = (mode, speedPreset) => {
   ];
 
   if (mode === 'simulate') {
-    base.unshift('Focus on downside risk and simulation robustness.');
+    base.unshift('Focus on scenario math, downside resilience, sequencing risk, and practical tradeoffs.');
+    base.unshift('Simulation mode: include scenarioResults with before/after outcomes and why they move.');
   } else if (mode === 'edit') {
-    base.unshift('Focus on actionable, safe app-state edits.');
+    base.unshift('Edit mode: explain each suggested change and include an actionable edits object.');
   } else {
-    base.unshift('Focus on answering the user question clearly and directly.');
+    base.unshift('Question mode: answer first, then provide supporting analysis and clear recommendations.');
   }
 
   return base.join('\n');
@@ -169,8 +198,14 @@ const buildInstructions = (mode, speedPreset) => {
 const normalizeAssistantData = (data) => {
   if (!data || typeof data !== 'object') {
     return {
-      summary: '',
-      keyPoints: [],
+      directAnswer: '',
+      executiveSummary: '',
+      deepAnalysis: [],
+      scenarioResults: [],
+      assumptions: [],
+      risks: [],
+      recommendations: [],
+      followUps: [],
       warnings: [],
       nextActions: [],
       edits: null,
@@ -179,19 +214,62 @@ const normalizeAssistantData = (data) => {
 
   const answer = data.answer && typeof data.answer === 'object' ? data.answer : data;
 
-  const summary =
+  const directAnswer =
     String(
+      answer.directAnswer ||
       answer.summary ||
+      data.directAnswer ||
       data.summary ||
       answer.message ||
       ''
     ).trim();
 
-  const keyPoints = toList(
+  const executiveSummary =
+    String(
+      answer.executiveSummary ||
+      answer.summary ||
+      data.executiveSummary ||
+      data.summary ||
+      ''
+    ).trim();
+
+  const deepAnalysis = toList(
+    answer.deepAnalysis ||
+    answer.analysis ||
     answer.keyPoints ||
     answer.highlights ||
+    data.deepAnalysis ||
+    data.analysis ||
     data.highlights ||
     data.keyPoints
+  );
+
+  const scenarioResults = toList(
+    answer.scenarioResults ||
+    answer.scenarioReadout ||
+    data.scenarioResults ||
+    data.scenarioReadout
+  );
+
+  const assumptions = toList(
+    answer.assumptions ||
+    answer.assumptionsReviewed ||
+    data.assumptions ||
+    data.assumptionsReviewed
+  );
+
+  const risks = toList(
+    answer.risks ||
+    answer.riskRegister ||
+    data.risks ||
+    data.riskRegister
+  );
+
+  const recommendations = toList(
+    answer.recommendations ||
+    answer.actionPlan ||
+    data.recommendations ||
+    data.actionPlan
   );
 
   const warnings = toList(answer.warnings || data.warnings);
@@ -202,9 +280,28 @@ const normalizeAssistantData = (data) => {
     data.actions
   );
 
+  const followUps = toList(
+    answer.followUps ||
+    answer.followUpQuestions ||
+    data.followUps ||
+    data.followUpQuestions
+  );
+
   const edits = data.edits && typeof data.edits === 'object' ? data.edits : null;
 
-  return { summary, keyPoints, warnings, nextActions, edits };
+  return {
+    directAnswer,
+    executiveSummary,
+    deepAnalysis,
+    scenarioResults,
+    assumptions,
+    risks,
+    recommendations,
+    warnings,
+    nextActions,
+    followUps,
+    edits,
+  };
 };
 
 const AIWorkbench = ({ compact = false }) => {
@@ -232,6 +329,7 @@ const AIWorkbench = ({ compact = false }) => {
   const [showRaw, setShowRaw] = useState(false);
 
   const activeModel = modelTier === 'gpu' ? MODEL_GPU : MODEL_CPU;
+  const effectiveRouteMode = isElectron ? 'local' : 'auto';
   const speedPreset = SPEED_PRESETS[speed] || SPEED_PRESETS.balanced;
 
   const contextSnapshot = useMemo(() => {
@@ -247,7 +345,7 @@ const AIWorkbench = ({ compact = false }) => {
 
     return {
       runtime: isElectron ? 'electron-desktop' : 'web',
-      llmMode: LLM_MODE,
+      llmMode: effectiveRouteMode,
       projectionSummary: {
         startYear: firstYear?.year,
         startNetWorth: firstYear?.netWorth,
@@ -282,6 +380,7 @@ const AIWorkbench = ({ compact = false }) => {
     briannaExpenses,
     financialData,
     globals,
+    effectiveRouteMode,
     michaelExpenses,
     retirementExpenses,
   ]);
@@ -364,6 +463,7 @@ const AIWorkbench = ({ compact = false }) => {
           llmMode: contextSnapshot.llmMode,
           projectionSummary: contextSnapshot.projectionSummary,
           keyAssumptions: contextSnapshot.keyAssumptions,
+          projectionPreview: contextSnapshot.projectionPreview,
         }
       : contextSnapshot;
 
@@ -385,9 +485,15 @@ const AIWorkbench = ({ compact = false }) => {
       prompt.trim(),
     ].join('\n');
 
-    const generationOptions = modelTier === 'gpu'
+    const baseGenerationOptions = modelTier === 'gpu'
       ? speedPreset.gpuOptions
       : speedPreset.cpuOptions;
+
+    const generationOptions = {
+      ...baseGenerationOptions,
+      max_tokens: baseGenerationOptions.num_predict,
+      reasoning_effort: speedPreset.reasoningEffort,
+    };
 
     const response = await queryGemma(assembledPrompt, activeModel, {
       expectJson: true,
@@ -452,7 +558,7 @@ const AIWorkbench = ({ compact = false }) => {
               Runtime: <span className="text-slate-200 font-semibold">{isElectron ? 'Desktop EXE' : 'Web'}</span>
             </p>
             <p>
-              Route mode: <span className="text-slate-200 font-semibold">{LLM_MODE}</span>
+              Route mode: <span className="text-slate-200 font-semibold">{effectiveRouteMode}</span>
             </p>
           </div>
         </div>
@@ -659,7 +765,7 @@ const AIWorkbench = ({ compact = false }) => {
           <h3 className="text-sm font-bold text-white mb-2">Assistant Result</h3>
           {!result && (
             <p className="text-xs text-slate-400">
-              Ask a question to get a structured answer with key points, warnings, and optional app edits.
+              Ask a question to get a full analysis report with scenario outcomes, risks, recommendations, and optional app edits.
             </p>
           )}
 
@@ -681,6 +787,10 @@ const AIWorkbench = ({ compact = false }) => {
                 </span>
                 <span className="text-slate-300">
                   Latency: <span className="font-semibold text-slate-100">{result.latencyMs} ms</span>
+                </span>
+                <span className="text-slate-300">
+                  Route:{' '}
+                  <span className="font-semibold text-slate-100">{result.endpoint || 'n/a'}</span>
                 </span>
                 {result.metrics?.tokensPerSecond ? (
                   <span className="text-slate-300">
@@ -724,20 +834,79 @@ const AIWorkbench = ({ compact = false }) => {
 
               {result.success && (
                 <>
-                  {normalizedResult.summary ? (
+                  {normalizedResult.directAnswer ? (
                     <div className="rounded-lg border border-sky-600/40 bg-sky-500/10 px-3 py-2 text-sky-100">
-                      <p className="text-[11px] uppercase tracking-wide text-sky-300 mb-1">Summary</p>
-                      <p className="text-sm text-white leading-relaxed">{normalizedResult.summary}</p>
+                      <p className="text-[11px] uppercase tracking-wide text-sky-300 mb-1">Direct Answer</p>
+                      <p className="text-sm text-white leading-relaxed">{normalizedResult.directAnswer}</p>
                     </div>
                   ) : null}
 
-                  {normalizedResult.keyPoints.length > 0 && (
+                  {normalizedResult.executiveSummary ? (
+                    <div className="rounded-lg border border-indigo-600/40 bg-indigo-500/10 px-3 py-2 text-indigo-100">
+                      <p className="text-[11px] uppercase tracking-wide text-indigo-300 mb-1">Executive Summary</p>
+                      <p className="text-sm text-white leading-relaxed">{normalizedResult.executiveSummary}</p>
+                    </div>
+                  ) : null}
+
+                  {normalizedResult.deepAnalysis.length > 0 && (
                     <div>
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">Key Points</p>
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">Deep Analysis</p>
                       <ul className="space-y-1.5">
-                        {normalizedResult.keyPoints.map((point) => (
+                        {normalizedResult.deepAnalysis.map((point) => (
                           <li key={point} className="text-slate-200 bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
                             {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {normalizedResult.scenarioResults.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-1">Scenario Results</p>
+                      <ul className="space-y-1.5">
+                        {normalizedResult.scenarioResults.map((row) => (
+                          <li key={row} className="text-cyan-100 bg-cyan-500/10 border border-cyan-500/30 rounded-md px-2 py-1.5">
+                            {row}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {normalizedResult.assumptions.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-slate-300 mb-1">Assumptions Reviewed</p>
+                      <ul className="space-y-1.5">
+                        {normalizedResult.assumptions.map((item) => (
+                          <li key={item} className="text-slate-100 bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {normalizedResult.risks.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-rose-300 mb-1">Risks</p>
+                      <ul className="space-y-1.5">
+                        {normalizedResult.risks.map((risk) => (
+                          <li key={risk} className="text-rose-100 bg-rose-500/10 border border-rose-500/30 rounded-md px-2 py-1.5">
+                            {risk}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {normalizedResult.recommendations.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-violet-300 mb-1">Recommendations</p>
+                      <ul className="space-y-1.5">
+                        {normalizedResult.recommendations.map((rec) => (
+                          <li key={rec} className="text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-md px-2 py-1.5">
+                            {rec}
                           </li>
                         ))}
                       </ul>
@@ -764,6 +933,19 @@ const AIWorkbench = ({ compact = false }) => {
                         {normalizedResult.nextActions.map((action) => (
                           <li key={action} className="text-emerald-100 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-2 py-1.5">
                             {action}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {normalizedResult.followUps.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-blue-300 mb-1">Follow-Ups</p>
+                      <ul className="space-y-1.5">
+                        {normalizedResult.followUps.map((item) => (
+                          <li key={item} className="text-blue-100 bg-blue-500/10 border border-blue-500/30 rounded-md px-2 py-1.5">
+                            {item}
                           </li>
                         ))}
                       </ul>

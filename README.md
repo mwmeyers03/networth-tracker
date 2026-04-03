@@ -29,6 +29,7 @@ This repo supports:
 Optional for web fallback:
 
 - A cloud LLM proxy endpoint compatible with JSON request/response
+- Or keep the built-in free HTTPS fallback enabled
 
 ## Environment setup
 
@@ -39,9 +40,12 @@ REACT_APP_OLLAMA_BASE_URL=http://localhost:11434/api/generate
 REACT_APP_MODEL_CPU=gemma4:e4b-it-q4_K_M
 REACT_APP_MODEL_GPU=gemma4:26b-a4b-it-q4_K_M
 REACT_APP_SYSTEM_PROMPT=Never store sensitive data. Respond only with valid JSON not markdown fences.
-REACT_APP_LLM_MODE=local
+REACT_APP_LLM_MODE=auto
 REACT_APP_OLLAMA_KEEP_ALIVE=30m
 REACT_APP_CLOUD_LLM_URL=
+REACT_APP_ENABLE_FREE_WEB_LLM=true
+REACT_APP_FREE_WEB_LLM_URL=https://text.pollinations.ai/openai
+REACT_APP_FREE_WEB_LLM_MODEL=openai
 ```
 
 If using local Ollama, pull models once:
@@ -124,7 +128,7 @@ Open the `AI` tab.
 - Web parity is preserved for core functionality.
 - LLM provider parity is configurable:
   - Desktop can use local Ollama
-  - Web can use local Ollama or cloud proxy fallback
+  - Web can use cloud proxy or built-in free HTTPS fallback
 
 ## Troubleshooting
 
@@ -133,3 +137,5 @@ Open the `AI` tab.
 - If EXE build fails on first run, re-run `npm install` then `npm run electron:build`.
 - Large first-query latency is normal when a model is cold-loading into VRAM/RAM. Keep-alive is enabled (`REACT_APP_OLLAMA_KEEP_ALIVE=30m`) so subsequent queries are much faster.
 - If web deployment is HTTPS and local Ollama URL is `http://localhost`, browser mixed-content rules block requests. Use desktop EXE for local Ollama, or configure `REACT_APP_CLOUD_LLM_URL` for web fallback.
+- In `auto` mode, when local HTTP Ollama is blocked in the browser, the app can fall back to `REACT_APP_FREE_WEB_LLM_URL` automatically.
+- Free web fallback is an external provider. Do not send secrets or sensitive personal data in prompts when using web fallback.
