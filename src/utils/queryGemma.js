@@ -26,6 +26,9 @@ const CLOUD_LLM_URL = process.env.REACT_APP_CLOUD_LLM_URL || '';
 const FREE_WEB_LLM_URL =
   process.env.REACT_APP_FREE_WEB_LLM_URL ||
   'https://text.pollinations.ai/openai';
+const FREE_WEB_LLM_SIMPLE_URL =
+  process.env.REACT_APP_FREE_WEB_LLM_SIMPLE_URL ||
+  'https://text.pollinations.ai';
 const FREE_WEB_LLM_MODEL = process.env.REACT_APP_FREE_WEB_LLM_MODEL || 'openai';
 const ENABLE_FREE_WEB_LLM =
   String(process.env.REACT_APP_ENABLE_FREE_WEB_LLM ?? 'true').toLowerCase() !== 'false';
@@ -196,8 +199,33 @@ const normalizeImages = (images) => {
 const looksLikeImageUnsupportedError = (message) =>
   /(image|vision|multimodal|does not support)/i.test(String(message || ''));
 
+const looksLikeFetchFailure = (message) =>
+  /(failed to fetch|networkerror|cors|load failed|fetch failed|typeerror)/i.test(String(message || ''));
+
 const isWebRuntime = () =>
   typeof window !== 'undefined' && !isElectron;
+
+const buildFreeWebSimpleUrl = (prompt, model, generationOverrides = {}, expectJson = true) => {
+  const base = String(FREE_WEB_LLM_SIMPLE_URL || 'https://text.pollinations.ai').replace(/\/+$/, '');
+  const url = new URL(`${base}/${encodeURIComponent(prompt)}`);
+
+  url.searchParams.set('model', model || FREE_WEB_LLM_MODEL);
+
+  const temperature = Number.isFinite(generationOverrides.temperature)
+    ? generationOverrides.temperature
+    : OLLAMA_TEMPERATURE;
+  url.searchParams.set('temperature', String(temperature));
+
+  if (SYSTEM_PROMPT) {
+    url.searchParams.set('system', SYSTEM_PROMPT);
+  }
+
+  if (expectJson) {
+    url.searchParams.set('json', 'true');
+  }
+
+  return url.toString();
+};
 
 const resolveEndpoints = (mode, { mixedContentRisk = false } = {}) => {
   const freeWeb =
@@ -379,6 +407,42 @@ const postRequest = async (url, payload, timeoutMs) => {
   }
 };
 
+const getRequest = async (url, timeoutMs) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`Request timed out after ${timeoutMs} ms`);
+      }
+      throw error;
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.toLowerCase().includes('application/json')) {
+      return await response.json();
+    }
+
+    const text = await response.text();
+    const parsed = tryParseJson(text);
+    return parsed.ok ? parsed.data : { response: text };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 /**
  * @template T
  * @typedef {Object} AIResponse
@@ -408,7 +472,7 @@ const isBrowserMixedContentRisk = () => {
  * @template T
  * @param {string} prompt
  * @param {string} [model]
- * @param {{ expectJson?: boolean, timeoutMs?: number, mode?: 'local'|'cloud'|'auto', tier?: 'cpu'|'gpu', images?: string[], generationOptions?: Record<string, number> }} [options]
+ * @param {{ expectJson?: boolean, timeoutMs?: number, mode?: 'local'|'cloud'|'auto', tier?: 'cpu'|'gpu', images?: string[], generationOptions?: Record<string, unknown> }} [options]
  * @returns {Promise<AIResponse<T>>}
  */
 export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
@@ -543,18 +607,56 @@ export async function queryGemma(prompt, model = MODEL_CPU, options = {}) {
             : baseRequestPayload;
 
           let payload;
-          try {
-            payload = await postRequest(endpoint.url, requestPayload, attemptTimeout);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (imagePayloads.length && looksLikeImageUnsupportedError(message)) {
-              payload = await postRequest(endpoint.url, baseRequestPayload, attemptTimeout);
-              warning = [
-                warning,
-                'Image input unsupported by this model; used text-only context.',
-              ].filter(Boolean).join(' ');
-            } else {
-              throw error;
+          if (endpoint.name === 'free-web') {
+            try {
+              payload = await postRequest(endpoint.url, requestPayload, attemptTimeout);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+
+              if (imagePayloads.length && looksLikeImageUnsupportedError(message)) {
+                const textOnlyPayload = {
+                  ...baseRequestPayload,
+                  messages: [
+                    { role: 'system', content: SYSTEM_PROMPT },
+                    { role: 'user', content: prompt },
+                  ],
+                };
+                payload = await postRequest(endpoint.url, textOnlyPayload, attemptTimeout);
+                warning = [
+                  warning,
+                  'Image input unsupported by this model; used text-only context.',
+                ].filter(Boolean).join(' ');
+              } else if (looksLikeFetchFailure(message)) {
+                const simpleUrl = buildFreeWebSimpleUrl(
+                  prompt,
+                  resolvedModel,
+                  generationOverrides,
+                  expectJson
+                );
+                payload = await getRequest(simpleUrl, attemptTimeout);
+                warning = [
+                  warning,
+                  'Free-web POST failed; switched to simple GET fallback.',
+                  imagePayloads.length ? 'Screenshot context is unavailable on this fallback route.' : '',
+                ].filter(Boolean).join(' ');
+              } else {
+                throw error;
+              }
+            }
+          } else {
+            try {
+              payload = await postRequest(endpoint.url, requestPayload, attemptTimeout);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              if (imagePayloads.length && looksLikeImageUnsupportedError(message)) {
+                payload = await postRequest(endpoint.url, baseRequestPayload, attemptTimeout);
+                warning = [
+                  warning,
+                  'Image input unsupported by this model; used text-only context.',
+                ].filter(Boolean).join(' ');
+              } else {
+                throw error;
+              }
             }
           }
 
@@ -655,6 +757,7 @@ export {
   LLM_MODE,
   CLOUD_LLM_URL,
   FREE_WEB_LLM_URL,
+  FREE_WEB_LLM_SIMPLE_URL,
   FREE_WEB_LLM_MODEL,
   ENABLE_FREE_WEB_LLM,
   OLLAMA_KEEP_ALIVE,

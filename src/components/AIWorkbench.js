@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Bot,
@@ -55,6 +55,12 @@ const MODE_ITEMS = [
   { id: 'ask', label: 'Ask', icon: MessageSquare },
   { id: 'simulate', label: 'Simulate', icon: Sparkles },
   { id: 'edit', label: 'Edit', icon: Wand2 },
+];
+
+const QUICK_FOLLOW_UPS = [
+  'Recalculate with explicit formulas and intermediate numeric steps for every recommendation.',
+  'Create a downside-case scenario table with year-by-year balance trajectory and failure points.',
+  'Give a concrete 12-month action plan with dollar targets, contribution amounts, and checkpoints.',
 ];
 
 const SPEED_PRESETS = {
@@ -114,6 +120,100 @@ const toList = (value) => {
   return [];
 };
 
+const toFiniteNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const normalizeNumericResults = (value) => {
+  if (!value) return [];
+
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? Object.entries(value).map(([metric, rawValue]) => ({ metric, value: rawValue }))
+      : [];
+
+  return rows
+    .map((row, index) => {
+      if (typeof row === 'string') {
+        return {
+          id: `nr-${index}`,
+          metric: row,
+          value: null,
+          unit: '',
+          formula: '',
+          confidence: '',
+          note: '',
+        };
+      }
+
+      if (!row || typeof row !== 'object') {
+        const num = toFiniteNumber(row);
+        return {
+          id: `nr-${index}`,
+          metric: `Metric ${index + 1}`,
+          value: num,
+          unit: '',
+          formula: '',
+          confidence: '',
+          note: '',
+        };
+      }
+
+      return {
+        id: String(row.id || row.metric || row.name || `nr-${index}`),
+        metric: String(row.metric || row.name || `Metric ${index + 1}`),
+        value: toFiniteNumber(row.value ?? row.amount ?? row.result ?? row.number),
+        unit: String(row.unit || row.units || row.format || '').trim(),
+        formula: String(row.formula || row.calculation || row.method || '').trim(),
+        confidence: String(row.confidence || row.certainty || '').trim(),
+        note: String(row.note || row.reason || row.explanation || '').trim(),
+      };
+    })
+    .filter((row) => row.metric || row.value !== null || row.note);
+};
+
+const normalizeScenarioRows = (value) => {
+  if (!value) return [];
+
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? Object.entries(value).map(([scenario, details]) => ({ scenario, ...(details || {}) }))
+      : [];
+
+  return rows
+    .map((row, index) => {
+      if (typeof row === 'string') {
+        return {
+          id: `sc-${index}`,
+          scenario: row,
+          retirementYear: null,
+          retirementNetWorth: null,
+          successRatePct: null,
+          depletionYear: null,
+          notes: '',
+        };
+      }
+
+      const safe = row && typeof row === 'object' ? row : {};
+
+      return {
+        id: String(safe.id || safe.scenario || safe.name || `sc-${index}`),
+        scenario: String(safe.scenario || safe.name || `Scenario ${index + 1}`),
+        retirementYear: toFiniteNumber(safe.retirementYear ?? safe.fireYear ?? safe.retireYear),
+        retirementNetWorth: toFiniteNumber(
+          safe.retirementNetWorth ?? safe.retireNetWorth ?? safe.netWorthAtRetirement
+        ),
+        successRatePct: toFiniteNumber(safe.successRatePct ?? safe.successRate ?? safe.probability),
+        depletionYear: toFiniteNumber(safe.depletionYear ?? safe.failureYear ?? safe.shortfallYear),
+        notes: String(safe.notes || safe.note || safe.explanation || '').trim(),
+      };
+    })
+    .filter((row) => row.scenario || row.notes);
+};
+
 const truncate = (value, len = 180) => {
   const text = String(value || '').trim();
   if (text.length <= len) return text;
@@ -154,6 +254,9 @@ const buildInstructions = (mode, speedPreset) => {
     'Give a thorough answer that directly addresses the user request.',
     'Do not provide generic filler. Tie every recommendation to the provided plan context.',
     `Include at least ${speedPreset.minAnalysisPoints} concrete items in answer.deepAnalysis.`,
+    'Always include answer.numericalResults with real numeric values and formulas.',
+    'Use currency amounts in USD with plain numbers (no commas).',
+    'For any recommendation, include at least one quantifiable expected impact.',
     'If a value is uncertain, state the assumption and still provide a best-effort estimate.',
     'When editing, only include fields that should actually change.',
     '',
@@ -167,6 +270,12 @@ const buildInstructions = (mode, speedPreset) => {
     '    "assumptions": ["string"],',
     '    "risks": ["string"],',
     '    "recommendations": ["string"],',
+    '    "numericalResults": [',
+    '      { "metric": "string", "value": 0, "unit": "USD|%|years", "formula": "string", "confidence": "high|medium|low", "note": "string" }',
+    '    ],',
+    '    "scenarioTable": [',
+    '      { "scenario": "base|stress|recommended", "retirementYear": 0, "retirementNetWorth": 0, "successRatePct": 0, "depletionYear": 0, "notes": "string" }',
+    '    ],',
     '    "nextActions": ["string"],',
     '    "followUps": ["string"],',
     '    "warnings": ["string"]',
@@ -186,6 +295,7 @@ const buildInstructions = (mode, speedPreset) => {
   if (mode === 'simulate') {
     base.unshift('Focus on scenario math, downside resilience, sequencing risk, and practical tradeoffs.');
     base.unshift('Simulation mode: include scenarioResults with before/after outcomes and why they move.');
+    base.unshift('Simulation mode: include at least 3 scenarioTable rows with explicit numeric values.');
   } else if (mode === 'edit') {
     base.unshift('Edit mode: explain each suggested change and include an actionable edits object.');
   } else {
@@ -205,6 +315,8 @@ const normalizeAssistantData = (data) => {
       assumptions: [],
       risks: [],
       recommendations: [],
+      numericalResults: [],
+      scenarioTable: [],
       followUps: [],
       warnings: [],
       nextActions: [],
@@ -272,6 +384,22 @@ const normalizeAssistantData = (data) => {
     data.actionPlan
   );
 
+  const numericalResults = normalizeNumericResults(
+    answer.numericalResults ||
+    answer.metrics ||
+    answer.quantitativeResults ||
+    data.numericalResults ||
+    data.metrics ||
+    data.quantitativeResults
+  );
+
+  const scenarioTable = normalizeScenarioRows(
+    answer.scenarioTable ||
+    answer.scenarios ||
+    data.scenarioTable ||
+    data.scenarios
+  );
+
   const warnings = toList(answer.warnings || data.warnings);
   const nextActions = toList(
     answer.nextActions ||
@@ -297,6 +425,8 @@ const normalizeAssistantData = (data) => {
     assumptions,
     risks,
     recommendations,
+    numericalResults,
+    scenarioTable,
     warnings,
     nextActions,
     followUps,
@@ -311,6 +441,9 @@ const AIWorkbench = ({ compact = false }) => {
     financialData,
     formatCur,
     globals,
+    monteCarloAggressive,
+    monteCarloBaseline,
+    monteCarloConservative,
     michaelExpenses,
     retirementExpenses,
   } = useData();
@@ -332,16 +465,88 @@ const AIWorkbench = ({ compact = false }) => {
   const effectiveRouteMode = isElectron ? 'local' : 'auto';
   const speedPreset = SPEED_PRESETS[speed] || SPEED_PRESETS.balanced;
 
+  const formatMetricValue = useCallback((row) => {
+    if (!row) return '-';
+    if (row.value === null || row.value === undefined || Number.isNaN(row.value)) {
+      return row.note || '-';
+    }
+
+    const unit = String(row.unit || '').toLowerCase();
+    const metric = String(row.metric || '').toLowerCase();
+
+    if (unit.includes('%') || unit === 'pct' || unit === 'percent') {
+      return `${row.value.toFixed(2)}%`;
+    }
+
+    if (
+      unit.includes('usd') ||
+      unit.includes('$') ||
+      metric.includes('worth') ||
+      metric.includes('balance') ||
+      metric.includes('income') ||
+      metric.includes('expense') ||
+      metric.includes('contribution')
+    ) {
+      return formatCur(row.value);
+    }
+
+    if (unit.includes('year')) {
+      return `${Math.round(row.value)} years`;
+    }
+
+    return Number.isInteger(row.value)
+      ? row.value.toLocaleString('en-US')
+      : row.value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }, [formatCur]);
+
   const contextSnapshot = useMemo(() => {
     const firstYear = financialData[0] || null;
+    const lastYear = financialData[financialData.length - 1] || null;
     const retirementYear = financialData.find((row) => row.retired) || null;
+    const retiredRows = financialData.filter((row) => row.retired);
     const peak = financialData.reduce(
       (acc, row) => (row.netWorth > acc.netWorth ? row : acc),
+      financialData[0] || { netWorth: 0, year: null }
+    );
+    const trough = financialData.reduce(
+      (acc, row) => (row.netWorth < acc.netWorth ? row : acc),
       financialData[0] || { netWorth: 0, year: null }
     );
 
     const michaelMonthly = Object.values(michaelExpenses).reduce((sum, val) => sum + Number(val || 0), 0);
     const briannaMonthly = Object.values(briannaExpenses).reduce((sum, val) => sum + Number(val || 0), 0);
+
+    const yearsSpan =
+      firstYear && lastYear && Number.isFinite(firstYear.year) && Number.isFinite(lastYear.year)
+        ? Math.max(1, lastYear.year - firstYear.year)
+        : null;
+
+    const cagr =
+      yearsSpan && firstYear?.netWorth > 0 && lastYear?.netWorth > 0
+        ? Math.pow(lastYear.netWorth / firstYear.netWorth, 1 / yearsSpan) - 1
+        : null;
+
+    const firstZeroNetWorthYear = financialData.find((row) => row.netWorth <= 0)?.year || null;
+    const firstLiquidityGapYear = financialData.find((row) => row.liquidityGap > 0)?.year || null;
+
+    const baseIncome = Number(firstYear?.combinedGross || 0);
+    const baseExpenses = Number(firstYear?.combinedExp || 0);
+    const baseSavings = baseIncome - baseExpenses;
+    const baseSavingsRate = baseIncome > 0 ? baseSavings / baseIncome : null;
+
+    const retirementCoverageRatio =
+      retirementYear && retirementExpenses.yearlyAmount > 0
+        ? (retirementYear.netWorth * globals.withdrawalRate) / retirementExpenses.yearlyAmount
+        : null;
+
+    const monteCarloSummary = {
+      baselineSuccessRate: Number(monteCarloBaseline?.successRate ?? 0),
+      conservativeSuccessRate: Number(monteCarloConservative?.successRate ?? 0),
+      aggressiveSuccessRate: Number(monteCarloAggressive?.successRate ?? 0),
+      baselineMedianFinalPortfolio: Number(monteCarloBaseline?.medianFinalPortfolio ?? 0),
+      conservativeMedianFinalPortfolio: Number(monteCarloConservative?.medianFinalPortfolio ?? 0),
+      aggressiveMedianFinalPortfolio: Number(monteCarloAggressive?.medianFinalPortfolio ?? 0),
+    };
 
     return {
       runtime: isElectron ? 'electron-desktop' : 'web',
@@ -349,11 +554,27 @@ const AIWorkbench = ({ compact = false }) => {
       projectionSummary: {
         startYear: firstYear?.year,
         startNetWorth: firstYear?.netWorth,
+        endYear: lastYear?.year,
+        endNetWorth: lastYear?.netWorth,
         retirementYear: retirementYear?.year,
         retirementNetWorth: retirementYear?.netWorth,
         peakYear: peak?.year,
         peakNetWorth: peak?.netWorth,
+        troughYear: trough?.year,
+        troughNetWorth: trough?.netWorth,
       },
+      numericDiagnostics: {
+        yearsSpan,
+        cagr,
+        baseIncome,
+        baseExpenses,
+        baseSavings,
+        baseSavingsRate,
+        retirementCoverageRatio,
+        firstZeroNetWorthYear,
+        firstLiquidityGapYear,
+      },
+      monteCarloSummary,
       keyAssumptions: {
         marketReturn: globals.marketReturn,
         inflationRate: globals.inflationRate,
@@ -368,12 +589,22 @@ const AIWorkbench = ({ compact = false }) => {
       michaelExpenses,
       briannaExpenses,
       retirementExpenses,
-      projectionPreview: financialData.slice(0, 10).map((row) => ({
+      projectionPreview: financialData.slice(0, 18).map((row) => ({
         year: row.year,
         netWorth: Math.round(row.netWorth),
         expenses: Math.round(row.combinedExp),
         income: Math.round(row.combinedGross),
+        liquidityGap: Math.round(row.liquidityGap || 0),
         retired: !!row.retired,
+      })),
+      retirementPhasePreview: retiredRows.slice(0, 18).map((row) => ({
+        year: row.year,
+        netWorth: Math.round(row.netWorth),
+        total401k: Math.round(row.total401k),
+        rothBal: Math.round(row.rothBal),
+        brokerageBal: Math.round(row.brokerageBal),
+        savingsBal: Math.round(row.savingsBal),
+        liquidityGap: Math.round(row.liquidityGap || 0),
       })),
     };
   }, [
@@ -381,6 +612,9 @@ const AIWorkbench = ({ compact = false }) => {
     financialData,
     globals,
     effectiveRouteMode,
+    monteCarloAggressive,
+    monteCarloBaseline,
+    monteCarloConservative,
     michaelExpenses,
     retirementExpenses,
   ]);
@@ -443,8 +677,10 @@ const AIWorkbench = ({ compact = false }) => {
     setApplyStatus(status.ok ? 'Ollama is ready.' : (status.message || 'Ollama is not available.'));
   };
 
-  const runPrompt = async () => {
-    if (!prompt.trim()) {
+  const runPrompt = async (overridePrompt = null) => {
+    const effectivePrompt = String(overridePrompt ?? prompt).trim();
+
+    if (!effectivePrompt) {
       setResult({
         success: false,
         error: 'Prompt cannot be empty.',
@@ -454,58 +690,87 @@ const AIWorkbench = ({ compact = false }) => {
       return;
     }
 
+    if (overridePrompt) {
+      setPrompt(effectivePrompt);
+    }
+
     setApplyStatus('');
     setLoading(true);
 
-    const contextPayload = mode === 'ask'
-      ? {
-          runtime: contextSnapshot.runtime,
-          llmMode: contextSnapshot.llmMode,
-          projectionSummary: contextSnapshot.projectionSummary,
-          keyAssumptions: contextSnapshot.keyAssumptions,
-          projectionPreview: contextSnapshot.projectionPreview,
-        }
-      : contextSnapshot;
+    try {
+      const contextPayload = mode === 'ask'
+        ? {
+            runtime: contextSnapshot.runtime,
+            llmMode: contextSnapshot.llmMode,
+            projectionSummary: contextSnapshot.projectionSummary,
+            numericDiagnostics: contextSnapshot.numericDiagnostics,
+            monteCarloSummary: contextSnapshot.monteCarloSummary,
+            keyAssumptions: contextSnapshot.keyAssumptions,
+            projectionPreview: contextSnapshot.projectionPreview,
+          }
+        : contextSnapshot;
 
-    const contextBlocks = [];
-    contextBlocks.push('Current app context JSON:');
-    contextBlocks.push(JSON.stringify(contextPayload));
+      const contextBlocks = [];
+      contextBlocks.push('Current app context JSON:');
+      contextBlocks.push(JSON.stringify(contextPayload));
 
-    if (selectedText) {
-      contextBlocks.push('Highlighted text context:');
-      contextBlocks.push(selectedText);
+      if (selectedText) {
+        contextBlocks.push('Highlighted text context:');
+        contextBlocks.push(selectedText);
+      }
+
+      if (result?.success && result?.data) {
+        contextBlocks.push('Previous assistant response JSON:');
+        contextBlocks.push(JSON.stringify(result.data));
+      }
+
+      const assembledPrompt = [
+        buildInstructions(mode, speedPreset),
+        '',
+        ...contextBlocks,
+        '',
+        'User request:',
+        effectivePrompt,
+      ].join('\n');
+
+      const baseGenerationOptions = modelTier === 'gpu'
+        ? speedPreset.gpuOptions
+        : speedPreset.cpuOptions;
+
+      const generationOptions = {
+        ...baseGenerationOptions,
+        max_tokens: baseGenerationOptions.num_predict,
+        reasoning_effort: speedPreset.reasoningEffort,
+      };
+
+      const response = await queryGemma(assembledPrompt, activeModel, {
+        expectJson: true,
+        timeoutMs: modelTier === 'gpu' ? speedPreset.timeoutMs + 45000 : speedPreset.timeoutMs,
+        mode: isElectron ? 'local' : 'auto',
+        tier: modelTier,
+        images: screenshotDataUrl ? [screenshotDataUrl] : undefined,
+        generationOptions,
+      });
+
+      setResult(response);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const assembledPrompt = [
-      buildInstructions(mode, speedPreset),
-      '',
-      ...contextBlocks,
-      '',
-      'User request:',
-      prompt.trim(),
-    ].join('\n');
+  const loadActionIntoPrompt = (actionText) => {
+    const cleaned = String(actionText || '').trim();
+    if (!cleaned) return;
+    setMode('ask');
+    setPrompt(cleaned);
+    setApplyStatus('Action loaded into prompt. Click Ask Copilot to run it.');
+  };
 
-    const baseGenerationOptions = modelTier === 'gpu'
-      ? speedPreset.gpuOptions
-      : speedPreset.cpuOptions;
-
-    const generationOptions = {
-      ...baseGenerationOptions,
-      max_tokens: baseGenerationOptions.num_predict,
-      reasoning_effort: speedPreset.reasoningEffort,
-    };
-
-    const response = await queryGemma(assembledPrompt, activeModel, {
-      expectJson: true,
-      timeoutMs: modelTier === 'gpu' ? speedPreset.timeoutMs + 45000 : speedPreset.timeoutMs,
-      mode: isElectron ? 'local' : 'auto',
-      tier: modelTier,
-      images: screenshotDataUrl ? [screenshotDataUrl] : undefined,
-      generationOptions,
-    });
-
-    setResult(response);
-    setLoading(false);
+  const runActionNow = (actionText) => {
+    const cleaned = String(actionText || '').trim();
+    if (!cleaned) return;
+    setMode('ask');
+    runPrompt(cleaned);
   };
 
   const handleApply = () => {
@@ -832,6 +1097,42 @@ const AIWorkbench = ({ compact = false }) => {
                 </div>
               )}
 
+              {!result.success && (
+                <div className="rounded-lg border border-cyan-600/40 bg-cyan-500/10 px-3 py-2 text-cyan-100">
+                  <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-1">Local Numeric Snapshot</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Base Success</p>
+                      <p className="text-slate-200 font-semibold">{contextSnapshot.monteCarloSummary.baselineSuccessRate.toFixed(1)}%</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Conservative</p>
+                      <p className="text-slate-200 font-semibold">{contextSnapshot.monteCarloSummary.conservativeSuccessRate.toFixed(1)}%</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Aggressive</p>
+                      <p className="text-slate-200 font-semibold">{contextSnapshot.monteCarloSummary.aggressiveSuccessRate.toFixed(1)}%</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Start Net Worth</p>
+                      <p className="text-slate-200 font-semibold">{formatCur(contextSnapshot.projectionSummary.startNetWorth || 0)}</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Retire Net Worth</p>
+                      <p className="text-slate-200 font-semibold">{formatCur(contextSnapshot.projectionSummary.retirementNetWorth || 0)}</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                      <p className="text-slate-500">Coverage Ratio</p>
+                      <p className="text-slate-200 font-semibold">
+                        {contextSnapshot.numericDiagnostics.retirementCoverageRatio !== null
+                          ? `${contextSnapshot.numericDiagnostics.retirementCoverageRatio.toFixed(2)}x`
+                          : '-'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {result.success && (
                 <>
                   {normalizedResult.directAnswer ? (
@@ -913,6 +1214,68 @@ const AIWorkbench = ({ compact = false }) => {
                     </div>
                   )}
 
+                  {normalizedResult.numericalResults.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-1">Numerical Results</p>
+                      <div className="overflow-x-auto rounded-md border border-cyan-500/30">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-cyan-500/10 text-cyan-200">
+                            <tr>
+                              <th className="text-left px-2 py-1.5">Metric</th>
+                              <th className="text-left px-2 py-1.5">Value</th>
+                              <th className="text-left px-2 py-1.5">Formula</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {normalizedResult.numericalResults.map((row) => (
+                              <tr key={row.id} className="border-t border-cyan-500/20 bg-slate-900/70 text-cyan-50">
+                                <td className="px-2 py-1.5 align-top">{row.metric}</td>
+                                <td className="px-2 py-1.5 align-top font-semibold">{formatMetricValue(row)}</td>
+                                <td className="px-2 py-1.5 align-top text-cyan-100/80">
+                                  {row.formula || row.note || '-'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {normalizedResult.scenarioTable.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-indigo-300 mb-1">Scenario Table</p>
+                      <div className="overflow-x-auto rounded-md border border-indigo-500/30">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-indigo-500/10 text-indigo-200">
+                            <tr>
+                              <th className="text-left px-2 py-1.5">Scenario</th>
+                              <th className="text-left px-2 py-1.5">Retire Year</th>
+                              <th className="text-left px-2 py-1.5">Retire Net Worth</th>
+                              <th className="text-left px-2 py-1.5">Success</th>
+                              <th className="text-left px-2 py-1.5">Depletion Year</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {normalizedResult.scenarioTable.map((row) => (
+                              <tr key={row.id} className="border-t border-indigo-500/20 bg-slate-900/70 text-indigo-50">
+                                <td className="px-2 py-1.5 align-top">{row.scenario}</td>
+                                <td className="px-2 py-1.5 align-top">{row.retirementYear ?? '-'}</td>
+                                <td className="px-2 py-1.5 align-top">
+                                  {row.retirementNetWorth !== null ? formatCur(row.retirementNetWorth) : '-'}
+                                </td>
+                                <td className="px-2 py-1.5 align-top">
+                                  {row.successRatePct !== null ? `${row.successRatePct.toFixed(1)}%` : '-'}
+                                </td>
+                                <td className="px-2 py-1.5 align-top">{row.depletionYear ?? '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   {normalizedResult.warnings.length > 0 && (
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-amber-300 mb-1">Warnings</p>
@@ -929,10 +1292,28 @@ const AIWorkbench = ({ compact = false }) => {
                   {normalizedResult.nextActions.length > 0 && (
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-emerald-300 mb-1">Next Actions</p>
-                      <ul className="space-y-1.5">
+                      <ul className="space-y-2">
                         {normalizedResult.nextActions.map((action) => (
                           <li key={action} className="text-emerald-100 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-2 py-1.5">
-                            {action}
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="leading-relaxed">{action}</span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => loadActionIntoPrompt(action)}
+                                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px]"
+                                >
+                                  Use
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => runActionNow(action)}
+                                  className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-[11px]"
+                                >
+                                  Run
+                                </button>
+                              </div>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -942,15 +1323,40 @@ const AIWorkbench = ({ compact = false }) => {
                   {normalizedResult.followUps.length > 0 && (
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-blue-300 mb-1">Follow-Ups</p>
-                      <ul className="space-y-1.5">
+                      <ul className="space-y-2">
                         {normalizedResult.followUps.map((item) => (
                           <li key={item} className="text-blue-100 bg-blue-500/10 border border-blue-500/30 rounded-md px-2 py-1.5">
-                            {item}
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="leading-relaxed">{item}</span>
+                              <button
+                                type="button"
+                                onClick={() => runActionNow(item)}
+                                className="px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white text-[11px] shrink-0"
+                              >
+                                Run
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
+
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-300 mb-1">Quick Continuations</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {QUICK_FOLLOW_UPS.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => runActionNow(suggestion)}
+                          className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] border border-slate-700"
+                        >
+                          {truncate(suggestion, 52)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
                   {editSummaryRows.length > 0 && (
                     <div>

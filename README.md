@@ -45,6 +45,7 @@ REACT_APP_OLLAMA_KEEP_ALIVE=30m
 REACT_APP_CLOUD_LLM_URL=
 REACT_APP_ENABLE_FREE_WEB_LLM=true
 REACT_APP_FREE_WEB_LLM_URL=https://text.pollinations.ai/openai
+REACT_APP_FREE_WEB_LLM_SIMPLE_URL=https://text.pollinations.ai
 REACT_APP_FREE_WEB_LLM_MODEL=openai
 ```
 
@@ -138,4 +139,5 @@ Open the `AI` tab.
 - Large first-query latency is normal when a model is cold-loading into VRAM/RAM. Keep-alive is enabled (`REACT_APP_OLLAMA_KEEP_ALIVE=30m`) so subsequent queries are much faster.
 - If web deployment is HTTPS and local Ollama URL is `http://localhost`, browser mixed-content rules block requests. Use desktop EXE for local Ollama, or configure `REACT_APP_CLOUD_LLM_URL` for web fallback.
 - In `auto` mode, when local HTTP Ollama is blocked in the browser, the app can fall back to `REACT_APP_FREE_WEB_LLM_URL` automatically.
+- If the free-web POST route is blocked in-browser, the app falls back to `REACT_APP_FREE_WEB_LLM_SIMPLE_URL` automatically.
 - Free web fallback is an external provider. Do not send secrets or sensitive personal data in prompts when using web fallback.
