@@ -249,30 +249,80 @@ const resolveEndpoints = (mode, { mixedContentRisk = false } = {}) => {
   return endpoints;
 };
 
-const buildTextFallbackData = (raw) => {
-  const lines = String(raw || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
+const cleanFallbackText = (value) => String(value ?? '')
+  .replace(/\r/g, '\n')
+  .replace(/```(?:json)?/gi, '')
+  .replace(/```/g, '')
+  .replace(/\*\*(.*?)\*\*/g, '$1')
+  .replace(/`([^`]+)`/g, '$1')
+  .replace(/^#{1,6}\s*/gm, '')
+  .trim();
+
+const splitFallbackPoints = (raw) => {
+  const cleaned = cleanFallbackText(raw);
+  if (!cleaned) return [];
+
+  const withSectionBreaks = cleaned
+    .replace(/([A-Z][A-Za-z0-9 /()_-]{2,40}:)\s*/g, '\n$1 ')
+    .replace(/(?:^|\s)[-*]\s+/g, '\n')
+    .replace(/\s*[•]\s+/g, '\n');
+
+  const chunks = withSectionBreaks
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 
-  const paragraph = lines.join(' ');
-  const details = lines.length > 0
-    ? lines.slice(0, 18)
-    : paragraph
-      ? [paragraph]
-      : [];
+  const points = [];
+
+  chunks.forEach((chunk) => {
+    if (chunk.length <= 220) {
+      points.push(chunk);
+      return;
+    }
+
+    const sentences = chunk.match(/[^.!?]+[.!?]?/g)
+      ?.map((sentence) => sentence.trim())
+      .filter(Boolean) || [chunk];
+
+    sentences.forEach((sentence) => {
+      if (sentence.length <= 220) {
+        points.push(sentence);
+      } else {
+        points.push(`${sentence.slice(0, 219)}...`);
+      }
+    });
+  });
+
+  return [...new Set(points)].slice(0, 24);
+};
+
+const buildTextFallbackData = (raw) => {
+  const details = splitFallbackPoints(raw);
+  const paragraph = details.join(' ').trim();
+
+  const scenarioResults = details
+    .filter((line) => /(scenario|baseline|stress|retire|retirement|net worth|delta|coverage|liquidity|depletion|year)/i.test(line))
+    .slice(0, 8);
+
+  const recommendations = details
+    .filter((line) => /(recommend|should|consider|increase|reduce|decrease|adjust|target|plan|action)/i.test(line))
+    .slice(0, 8);
+
+  const warnings = details
+    .filter((line) => /(risk|warning|gap|shortfall|depletion|uncertain|volatility|downside)/i.test(line))
+    .slice(0, 6);
 
   return {
     answer: {
-      directAnswer: paragraph || 'No model content returned.',
-      executiveSummary: paragraph ? paragraph.slice(0, 420) : '',
-      deepAnalysis: details,
-      scenarioResults: [],
+      directAnswer: details[0] || paragraph || 'No model content returned.',
+      executiveSummary: paragraph ? paragraph.slice(0, 520) : '',
+      deepAnalysis: details.slice(0, 16),
+      scenarioResults,
       assumptions: [],
-      risks: [],
-      recommendations: [],
-      nextActions: [],
-      warnings: [],
+      risks: warnings,
+      recommendations,
+      nextActions: recommendations.slice(0, 5),
+      warnings,
       followUps: [],
     },
     edits: {},

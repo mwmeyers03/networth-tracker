@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
+  BarChart3,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -16,6 +17,20 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { useData } from '../contexts/DataContext';
 import {
   isElectron,
@@ -93,36 +108,142 @@ const SPEED_PRESETS = {
   },
 };
 
-const toList = (value) => {
-  if (!value) return [];
+const cleanDisplayText = (value) => String(value ?? '')
+  .replace(/\r/g, '\n')
+  .replace(/```(?:json)?/gi, '')
+  .replace(/```/g, '')
+  .replace(/\*\*(.*?)\*\*/g, '$1')
+  .replace(/`([^`]+)`/g, '$1')
+  .replace(/^#{1,6}\s*/gm, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const splitIntoReadablePoints = (value) => {
+  const cleaned = cleanDisplayText(value);
+  if (!cleaned) return [];
+
+  const withSectionBreaks = cleaned
+    .replace(/([A-Z][A-Za-z0-9 /()_-]{2,40}:)\s*/g, '\n$1 ')
+    .replace(/(?:^|\s)[-*]\s+/g, '\n')
+    .replace(/\s*[•]\s+/g, '\n');
+
+  const rawParts = withSectionBreaks
+    .split(/\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const points = [];
+
+  rawParts.forEach((part) => {
+    if (part.length <= 220) {
+      points.push(part);
+      return;
+    }
+
+    const sentences = part.match(/[^.!?]+[.!?]?/g)
+      ?.map((segment) => segment.trim())
+      .filter(Boolean) || [part];
+
+    sentences.forEach((sentence) => {
+      if (sentence.length <= 220) {
+        points.push(sentence);
+      } else {
+        points.push(`${sentence.slice(0, 219)}...`);
+      }
+    });
+  });
+
+  return [...new Set(points)].slice(0, 30);
+};
+
+const stringifyStructuredValue = (value) => {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
   if (Array.isArray(value)) {
     return value
-      .map((item) => {
-        if (typeof item === 'string') return item.trim();
-        if (item && typeof item === 'object') {
-          return Object.entries(item)
-            .map(([key, val]) => `${key}: ${typeof val === 'string' ? val : JSON.stringify(val)}`)
-            .join(' | ')
-            .trim();
-        }
-        return String(item || '').trim();
-      })
-      .filter(Boolean);
+      .map((entry) => stringifyStructuredValue(entry))
+      .filter(Boolean)
+      .join(' | ');
   }
-  if (value && typeof value === 'object') {
-    const asLine = Object.entries(value)
-      .map(([key, val]) => `${key}: ${typeof val === 'string' ? val : JSON.stringify(val)}`)
+
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([key, val]) => `${key}: ${stringifyStructuredValue(val)}`)
+      .filter(Boolean)
       .join(' | ')
       .trim();
-    return asLine ? [asLine] : [];
   }
-  if (typeof value === 'string' && value.trim()) return [value.trim()];
-  return [];
+
+  return String(value);
+};
+
+const toList = (value) => {
+  if (!value) return [];
+
+  const items = Array.isArray(value) ? value : [value];
+
+  const lines = items.flatMap((item) => {
+    if (typeof item === 'string') {
+      return splitIntoReadablePoints(item);
+    }
+
+    if (item && typeof item === 'object') {
+      return splitIntoReadablePoints(stringifyStructuredValue(item));
+    }
+
+    return splitIntoReadablePoints(String(item ?? ''));
+  });
+
+  return [...new Set(lines.filter(Boolean))];
+};
+
+const toPromptString = (value) => {
+  const asText = typeof value === 'string'
+    ? value
+    : value && typeof value === 'object'
+      ? stringifyStructuredValue(value)
+      : String(value ?? '');
+
+  return cleanDisplayText(asText);
 };
 
 const toFiniteNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+};
+
+const formatUsdInline = (value) => {
+  const num = toFiniteNumber(value);
+  if (num === null) return 'N/A';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(num);
+};
+
+const formatSignedUsdInline = (value) => {
+  const num = toFiniteNumber(value);
+  if (num === null) return 'N/A';
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${formatUsdInline(num)}`;
+};
+
+const formatRatioInline = (value) => {
+  const num = toFiniteNumber(value);
+  return num === null ? 'N/A' : `${num.toFixed(2)}x`;
+};
+
+const formatPctInline = (value) => {
+  const num = toFiniteNumber(value);
+  return num === null ? 'N/A' : `${num.toFixed(1)}%`;
+};
+
+const formatYearInline = (value) => {
+  const num = toFiniteNumber(value);
+  return num === null ? 'N/A' : String(Math.round(num));
 };
 
 const normalizeNumericResults = (value) => {
@@ -220,6 +341,172 @@ const truncate = (value, len = 180) => {
   return `${text.slice(0, len - 1)}...`;
 };
 
+const canonicalizeLine = (value) => cleanDisplayText(value)
+  .toLowerCase()
+  .replace(/\$[\d,]+(?:\.\d+)?/g, '$amount')
+  .replace(/[0-9]+(?:\.[0-9]+)?%/g, 'pct')
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const compactUniqueList = (items, maxItems = 10) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const seen = new Set();
+  const compacted = [];
+
+  items.forEach((item) => {
+    if (compacted.length >= maxItems) return;
+    const cleaned = cleanDisplayText(item);
+    if (!cleaned) return;
+
+    const key = canonicalizeLine(cleaned);
+    if (!key || seen.has(key)) return;
+
+    seen.add(key);
+    compacted.push(cleaned);
+  });
+
+  return compacted;
+};
+
+const CHART_COLORS = ['#38bdf8', '#22c55e', '#f59e0b', '#a78bfa', '#f97316', '#14b8a6'];
+
+const normalizeChartSeries = (value) => {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index) => {
+      if (typeof item === 'string') {
+        const key = cleanDisplayText(item);
+        if (!key) return null;
+
+        return {
+          key,
+          label: key,
+          color: CHART_COLORS[index % CHART_COLORS.length],
+          format: 'number',
+        };
+      }
+
+      if (!item || typeof item !== 'object') return null;
+
+      const key = cleanDisplayText(item.key || item.dataKey || item.field || '');
+      if (!key) return null;
+
+      return {
+        key,
+        label: cleanDisplayText(item.label || item.name || key),
+        color: cleanDisplayText(item.color || item.stroke || CHART_COLORS[index % CHART_COLORS.length]) || CHART_COLORS[index % CHART_COLORS.length],
+        format: cleanDisplayText(item.format || item.unit || 'number').toLowerCase(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeChartSpecs = (value) => {
+  if (!value) return [];
+  const rows = Array.isArray(value) ? value : [value];
+
+  return rows
+    .map((row, index) => {
+      if (!row || typeof row !== 'object') return null;
+
+      const chartType = cleanDisplayText(row.chartType || row.type || 'line').toLowerCase();
+      const normalizedType = ['line', 'area', 'bar'].includes(chartType) ? chartType : 'line';
+
+      const series = normalizeChartSeries(row.series);
+
+      return {
+        id: cleanDisplayText(row.id || row.title || `chart-${index}`) || `chart-${index}`,
+        title: cleanDisplayText(row.title || row.name || `Chart ${index + 1}`) || `Chart ${index + 1}`,
+        description: cleanDisplayText(row.description || row.notes || ''),
+        chartType: normalizedType,
+        xKey: cleanDisplayText(row.xKey || row.x || 'year') || 'year',
+        dataSource: cleanDisplayText(row.dataSource || row.dataset || '').toLowerCase(),
+        data: Array.isArray(row.data) ? row.data : [],
+        series,
+      };
+    })
+    .filter((spec) => spec && (spec.series.length > 0 || spec.data.length > 0));
+};
+
+const buildDeterministicChartSpecs = (report) => {
+  if (!report || typeof report !== 'object') return [];
+
+  const comparisonSeries = Array.isArray(report.comparisonSeries) ? report.comparisonSeries : [];
+  const allocationComparison = Array.isArray(report.allocationComparison) ? report.allocationComparison : [];
+
+  const specs = [
+    {
+      id: 'det-net-worth-comparison',
+      title: 'Net Worth Projection (Baseline vs Scenario)',
+      description: 'Yearly trajectory comparison for total net worth.',
+      chartType: 'line',
+      xKey: 'year',
+      dataSource: 'comparisonseries',
+      series: [
+        { key: 'baselineNetWorth', label: 'Baseline Net Worth', color: '#38bdf8', format: 'currency' },
+        { key: 'scenarioNetWorth', label: 'Scenario Net Worth', color: '#22c55e', format: 'currency' },
+      ],
+    },
+    {
+      id: 'det-income-expense-stress',
+      title: 'Income vs Expense Stress View',
+      description: 'Tracks annual cash inflow/outflow impact under scenario assumptions.',
+      chartType: 'area',
+      xKey: 'year',
+      dataSource: 'comparisonseries',
+      series: [
+        { key: 'scenarioIncome', label: 'Scenario Income', color: '#14b8a6', format: 'currency' },
+        { key: 'scenarioExpenses', label: 'Scenario Expenses', color: '#f97316', format: 'currency' },
+      ],
+    },
+    {
+      id: 'det-retirement-allocation',
+      title: 'Retirement Asset Mix Comparison',
+      description: 'Compares baseline vs scenario retirement-year asset composition.',
+      chartType: 'bar',
+      xKey: 'bucket',
+      dataSource: 'allocationcomparison',
+      series: [
+        { key: 'baseline', label: 'Baseline', color: '#60a5fa', format: 'currency' },
+        { key: 'scenario', label: 'Scenario', color: '#34d399', format: 'currency' },
+      ],
+    },
+  ];
+
+  if (!comparisonSeries.length && !allocationComparison.length) {
+    return [];
+  }
+
+  return specs;
+};
+
+const resolveChartData = (spec, report) => {
+  if (Array.isArray(spec?.data) && spec.data.length > 0) return spec.data;
+
+  const source = String(spec?.dataSource || '').toLowerCase();
+
+  if (source === 'comparisonseries') {
+    return Array.isArray(report?.comparisonSeries) ? report.comparisonSeries : [];
+  }
+
+  if (source === 'allocationcomparison') {
+    return Array.isArray(report?.allocationComparison) ? report.allocationComparison : [];
+  }
+
+  if (source === 'scenariopreview') {
+    return Array.isArray(report?.scenarioPreview) ? report.scenarioPreview : [];
+  }
+
+  if (Array.isArray(report?.comparisonSeries) && report.comparisonSeries.length > 0) {
+    return report.comparisonSeries;
+  }
+
+  return [];
+};
+
 const parseScenarioFromPrompt = (promptText) => {
   const text = String(promptText || '');
   const parsed = {};
@@ -269,6 +556,22 @@ const parseScenarioFromPrompt = (promptText) => {
   }
 
   return parsed;
+};
+
+const hasScenarioOverrides = (report) => {
+  if (!report || typeof report !== 'object') return false;
+  const inputs = report.inputs || {};
+
+  return (
+    toFiniteNumber(inputs.inflationRate) !== null ||
+    toFiniteNumber(inputs.inflationShockRate) !== null ||
+    (toFiniteNumber(inputs.inflationShockYears) !== null && Number(inputs.inflationShockYears) > 0) ||
+    toFiniteNumber(inputs.michaelRetirementAge) !== null ||
+    toFiniteNumber(inputs.briannaRetirementAge) !== null ||
+    toFiniteNumber(inputs.withdrawalRate) !== null ||
+    toFiniteNumber(inputs.marketReturn) !== null ||
+    toFiniteNumber(inputs.retirementYearlyAmount) !== null
+  );
 };
 
 const buildDeterministicNumericalRows = (report) => {
@@ -377,26 +680,227 @@ const buildDeterministicScenarioRows = (report) => {
   ];
 };
 
-const buildDeterministicActions = (report) => {
+const buildDeterministicActions = (report, snapshot = null) => {
   if (!report || typeof report !== 'object') return [];
   const base = report.baseline || {};
   const scenario = report.scenario || {};
+  const inputs = report.inputs || {};
   const actions = [];
+
+  const scenarioCoverage = toFiniteNumber(scenario.withdrawalCoverageRatio);
+  const scenarioRetirementNetWorth = toFiniteNumber(scenario.retirementNetWorth);
+  const scenarioWithdrawalRate =
+    toFiniteNumber(inputs.withdrawalRate) ?? toFiniteNumber(snapshot?.keyAssumptions?.withdrawalRate);
+  const scenarioRetirementSpend =
+    toFiniteNumber(inputs.retirementYearlyAmount) ?? toFiniteNumber(snapshot?.keyAssumptions?.retirementYearlyAmount);
+
+  if (
+    scenarioCoverage !== null &&
+    scenarioCoverage < 1 &&
+    scenarioRetirementNetWorth !== null &&
+    scenarioWithdrawalRate !== null &&
+    scenarioRetirementSpend !== null
+  ) {
+    const sustainableSpend = scenarioRetirementNetWorth * scenarioWithdrawalRate;
+    const reductionNeeded = Math.max(0, scenarioRetirementSpend - sustainableSpend);
+
+    if (reductionNeeded > 0) {
+      actions.push(
+        `Lower retirement spend by about ${formatUsdInline(reductionNeeded)} per year (from ${formatUsdInline(
+          scenarioRetirementSpend
+        )} to ${formatUsdInline(sustainableSpend)}) to reach at least 1.00x coverage.`
+      );
+    }
+  }
 
   if (
     toFiniteNumber(base.withdrawalCoverageRatio) !== null &&
     toFiniteNumber(scenario.withdrawalCoverageRatio) !== null &&
     Number(scenario.withdrawalCoverageRatio) < Number(base.withdrawalCoverageRatio)
   ) {
-    actions.push('Reduce retirement spend or increase retirement age until withdrawal coverage ratio improves versus baseline.');
+    actions.push(
+      `Coverage drops from ${formatRatioInline(base.withdrawalCoverageRatio)} to ${formatRatioInline(
+        scenario.withdrawalCoverageRatio
+      )}; push retirement age back 1-2 years or increase annual contributions to recover this gap.`
+    );
   }
 
   if (toFiniteNumber(scenario.firstLiquidityGapYear) !== null) {
-    actions.push(`Address projected liquidity gap around ${Math.round(Number(scenario.firstLiquidityGapYear))} by lowering spend or increasing contributions.`);
+    actions.push(
+      `Address projected liquidity gap by ${formatYearInline(
+        scenario.firstLiquidityGapYear
+      )} with a staged cash buffer and lower pre-retirement spending.`
+    );
+  }
+
+  if (
+    toFiniteNumber(scenario.retirementNetWorth) !== null &&
+    toFiniteNumber(base.retirementNetWorth) !== null
+  ) {
+    const delta = Number(scenario.retirementNetWorth) - Number(base.retirementNetWorth);
+    actions.push(
+      `Scenario retirement net worth change is ${formatSignedUsdInline(
+        delta
+      )}; test contribution increases and delayed retirement until this delta is no longer negative.`
+    );
   }
 
   actions.push('Run a comparison with retirement age +2 years and review the retirement net worth delta.');
-  return actions;
+  return [...new Set(actions)].slice(0, 8);
+};
+
+const buildDeterministicDeepAnalysis = (report, snapshot = null) => {
+  if (!report || typeof report !== 'object') return [];
+
+  const base = report.baseline || {};
+  const scenario = report.scenario || {};
+  const monte = snapshot?.monteCarloSummary || {};
+  const diagnostics = snapshot?.numericDiagnostics || {};
+
+  const points = [];
+
+  if (
+    toFiniteNumber(base.retirementNetWorth) !== null &&
+    toFiniteNumber(scenario.retirementNetWorth) !== null
+  ) {
+    const delta = Number(scenario.retirementNetWorth) - Number(base.retirementNetWorth);
+    points.push(
+      `Retirement-year net worth moves from ${formatUsdInline(base.retirementNetWorth)} to ${formatUsdInline(
+        scenario.retirementNetWorth
+      )} (${formatSignedUsdInline(delta)} change).`
+    );
+  }
+
+  if (
+    toFiniteNumber(base.retirementYear) !== null ||
+    toFiniteNumber(scenario.retirementYear) !== null
+  ) {
+    points.push(
+      `Baseline retirement year is ${formatYearInline(base.retirementYear)}; scenario retirement year is ${formatYearInline(
+        scenario.retirementYear
+      )}.`
+    );
+  }
+
+  if (
+    toFiniteNumber(base.withdrawalCoverageRatio) !== null ||
+    toFiniteNumber(scenario.withdrawalCoverageRatio) !== null
+  ) {
+    points.push(
+      `Withdrawal coverage ratio shifts from ${formatRatioInline(base.withdrawalCoverageRatio)} to ${formatRatioInline(
+        scenario.withdrawalCoverageRatio
+      )}; values below 1.00x indicate spend pressure.`
+    );
+  }
+
+  if (toFiniteNumber(scenario.firstLiquidityGapYear) !== null) {
+    points.push(
+      `Scenario shows first liquidity gap around ${formatYearInline(
+        scenario.firstLiquidityGapYear
+      )}, signaling when current withdrawal path becomes underfunded.`
+    );
+  }
+
+  if (toFiniteNumber(scenario.minNetWorth) !== null) {
+    points.push(
+      `Scenario minimum projected net worth is ${formatUsdInline(scenario.minNetWorth)} in ${formatYearInline(
+        scenario.minYear
+      )}.`
+    );
+  }
+
+  if (toFiniteNumber(diagnostics.baseSavingsRate) !== null) {
+    points.push(
+      `Current pre-retirement savings rate is ${(Number(diagnostics.baseSavingsRate) * 100).toFixed(
+        1
+      )}% based on first-year income and expenses.`
+    );
+  }
+
+  if (
+    toFiniteNumber(monte.baselineSuccessRate) !== null ||
+    toFiniteNumber(monte.conservativeSuccessRate) !== null ||
+    toFiniteNumber(monte.aggressiveSuccessRate) !== null
+  ) {
+    points.push(
+      `Monte Carlo success rates: baseline ${formatPctInline(
+        monte.baselineSuccessRate
+      )}, conservative ${formatPctInline(monte.conservativeSuccessRate)}, aggressive ${formatPctInline(
+        monte.aggressiveSuccessRate
+      )}.`
+    );
+  }
+
+  return [...new Set(points.filter(Boolean))].slice(0, 14);
+};
+
+const buildDeterministicScenarioResults = (report) => {
+  if (!report || typeof report !== 'object') return [];
+
+  const base = report.baseline || {};
+  const scenario = report.scenario || {};
+
+  const rows = [];
+
+  if (
+    toFiniteNumber(base.retirementNetWorth) !== null &&
+    toFiniteNumber(scenario.retirementNetWorth) !== null
+  ) {
+    const delta = Number(scenario.retirementNetWorth) - Number(base.retirementNetWorth);
+    rows.push(
+      `Retirement net worth: ${formatUsdInline(base.retirementNetWorth)} -> ${formatUsdInline(
+        scenario.retirementNetWorth
+      )} (${formatSignedUsdInline(delta)}).`
+    );
+  }
+
+  if (
+    toFiniteNumber(base.withdrawalCoverageRatio) !== null &&
+    toFiniteNumber(scenario.withdrawalCoverageRatio) !== null
+  ) {
+    rows.push(
+      `Coverage ratio: ${formatRatioInline(base.withdrawalCoverageRatio)} -> ${formatRatioInline(
+        scenario.withdrawalCoverageRatio
+      )}.`
+    );
+  }
+
+  if (toFiniteNumber(scenario.firstLiquidityGapYear) !== null) {
+    rows.push(`First scenario liquidity gap year: ${formatYearInline(scenario.firstLiquidityGapYear)}.`);
+  }
+
+  if (toFiniteNumber(scenario.endNetWorth) !== null) {
+    rows.push(`End-of-horizon scenario net worth: ${formatUsdInline(scenario.endNetWorth)}.`);
+  }
+
+  return [...new Set(rows)].slice(0, 10);
+};
+
+const buildDeterministicWarnings = (report, snapshot = null) => {
+  if (!report || typeof report !== 'object') return [];
+
+  const scenario = report.scenario || {};
+  const warnings = [];
+
+  if (
+    toFiniteNumber(scenario.withdrawalCoverageRatio) !== null &&
+    Number(scenario.withdrawalCoverageRatio) < 1
+  ) {
+    warnings.push('Scenario withdrawal coverage is below 1.00x, indicating retirement spend exceeds sustainable withdrawals.');
+  }
+
+  if (toFiniteNumber(scenario.firstLiquidityGapYear) !== null) {
+    warnings.push(`Liquidity shortfall appears by ${formatYearInline(scenario.firstLiquidityGapYear)} under the current scenario.`);
+  }
+
+  if (
+    toFiniteNumber(snapshot?.monteCarloSummary?.conservativeSuccessRate) !== null &&
+    Number(snapshot.monteCarloSummary.conservativeSuccessRate) < 70
+  ) {
+    warnings.push('Conservative Monte Carlo success is below 70%, suggesting limited downside resilience.');
+  }
+
+  return [...new Set(warnings)].slice(0, 6);
 };
 
 const summarizeEdits = (edits) => {
@@ -432,10 +936,14 @@ const buildInstructions = (mode, speedPreset) => {
     'Return only valid JSON. Do not include markdown fences.',
     'Give a thorough answer that directly addresses the user request.',
     'Do not provide generic filler. Tie every recommendation to the provided plan context.',
+    'Avoid repeating the same idea in different words. Keep each bullet uniquely informative.',
+    'Each deepAnalysis item should be one concise sentence and avoid paragraph-length text.',
     'Use deterministicLocalScenario values from context as authoritative when available.',
     'Do not replace deterministic values with guessed values.',
     `Include at least ${speedPreset.minAnalysisPoints} concrete items in answer.deepAnalysis.`,
     'Always include answer.numericalResults with real numeric values and formulas.',
+    'Include answer.chartSpecs with practical visualizations using existing context datasets.',
+    'Prefer chart dataSource values of comparisonSeries or allocationComparison over large inline arrays.',
     'Use currency amounts in USD with plain numbers (no commas).',
     'For any recommendation, include at least one quantifiable expected impact.',
     'If a value is uncertain, state the assumption and still provide a best-effort estimate.',
@@ -453,6 +961,9 @@ const buildInstructions = (mode, speedPreset) => {
     '    "recommendations": ["string"],',
     '    "numericalResults": [',
     '      { "metric": "string", "value": 0, "unit": "USD|%|years", "formula": "string", "confidence": "high|medium|low", "note": "string" }',
+    '    ],',
+    '    "chartSpecs": [',
+    '      { "title": "string", "description": "string", "chartType": "line|area|bar", "xKey": "year", "dataSource": "comparisonSeries|allocationComparison", "series": [ { "key": "scenarioNetWorth", "label": "Scenario Net Worth", "color": "#22c55e", "format": "currency|percent|number" } ] }',
     '    ],',
     '    "scenarioTable": [',
     '      { "scenario": "base|stress|recommended", "retirementYear": 0, "retirementNetWorth": 0, "successRatePct": 0, "depletionYear": 0, "notes": "string" }',
@@ -497,6 +1008,7 @@ const normalizeAssistantData = (data) => {
       risks: [],
       recommendations: [],
       numericalResults: [],
+      chartSpecs: [],
       scenarioTable: [],
       followUps: [],
       warnings: [],
@@ -508,25 +1020,25 @@ const normalizeAssistantData = (data) => {
   const answer = data.answer && typeof data.answer === 'object' ? data.answer : data;
 
   const directAnswer =
-    String(
+    truncate(cleanDisplayText(String(
       answer.directAnswer ||
       answer.summary ||
       data.directAnswer ||
       data.summary ||
       answer.message ||
       ''
-    ).trim();
+    )), 520);
 
   const executiveSummary =
-    String(
+    truncate(cleanDisplayText(String(
       answer.executiveSummary ||
       answer.summary ||
       data.executiveSummary ||
       data.summary ||
       ''
-    ).trim();
+    )), 760);
 
-  const deepAnalysis = toList(
+  const deepAnalysis = compactUniqueList(toList(
     answer.deepAnalysis ||
     answer.analysis ||
     answer.keyPoints ||
@@ -535,35 +1047,35 @@ const normalizeAssistantData = (data) => {
     data.analysis ||
     data.highlights ||
     data.keyPoints
-  );
+  ), 12);
 
-  const scenarioResults = toList(
+  const scenarioResults = compactUniqueList(toList(
     answer.scenarioResults ||
     answer.scenarioReadout ||
     data.scenarioResults ||
     data.scenarioReadout
-  );
+  ), 10);
 
-  const assumptions = toList(
+  const assumptions = compactUniqueList(toList(
     answer.assumptions ||
     answer.assumptionsReviewed ||
     data.assumptions ||
     data.assumptionsReviewed
-  );
+  ), 8);
 
-  const risks = toList(
+  const risks = compactUniqueList(toList(
     answer.risks ||
     answer.riskRegister ||
     data.risks ||
     data.riskRegister
-  );
+  ), 8);
 
-  const recommendations = toList(
+  const recommendations = compactUniqueList(toList(
     answer.recommendations ||
     answer.actionPlan ||
     data.recommendations ||
     data.actionPlan
-  );
+  ), 8);
 
   const numericalResults = normalizeNumericResults(
     answer.numericalResults ||
@@ -581,20 +1093,27 @@ const normalizeAssistantData = (data) => {
     data.scenarios
   );
 
-  const warnings = toList(answer.warnings || data.warnings);
-  const nextActions = toList(
+  const chartSpecs = normalizeChartSpecs(
+    answer.chartSpecs ||
+    answer.charts ||
+    data.chartSpecs ||
+    data.charts
+  );
+
+  const warnings = compactUniqueList(toList(answer.warnings || data.warnings), 6);
+  const nextActions = compactUniqueList(toList(
     answer.nextActions ||
     answer.actions ||
     data.nextActions ||
     data.actions
-  );
+  ), 10);
 
-  const followUps = toList(
+  const followUps = compactUniqueList(toList(
     answer.followUps ||
     answer.followUpQuestions ||
     data.followUps ||
     data.followUpQuestions
-  );
+  ), 10);
 
   const edits = data.edits && typeof data.edits === 'object' ? data.edits : null;
 
@@ -607,6 +1126,7 @@ const normalizeAssistantData = (data) => {
     risks,
     recommendations,
     numericalResults,
+    chartSpecs,
     scenarioTable,
     warnings,
     nextActions,
@@ -642,6 +1162,10 @@ const AIWorkbench = ({ compact = false }) => {
   const [screenshotDataUrl, setScreenshotDataUrl] = useState('');
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [activeChartId, setActiveChartId] = useState('');
+  const [chartWindowYears, setChartWindowYears] = useState(35);
+  const [showBaselineSeries, setShowBaselineSeries] = useState(true);
+  const [showScenarioSeries, setShowScenarioSeries] = useState(true);
 
   const activeModel = modelTier === 'gpu' ? MODEL_GPU : MODEL_CPU;
   const effectiveRouteMode = isElectron ? 'local' : 'auto';
@@ -679,6 +1203,23 @@ const AIWorkbench = ({ compact = false }) => {
     return Number.isInteger(row.value)
       ? row.value.toLocaleString('en-US')
       : row.value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }, [formatCur]);
+
+  const formatChartValue = useCallback((value, formatHint = 'number') => {
+    const num = toFiniteNumber(value);
+    if (num === null) return '-';
+
+    const hint = String(formatHint || 'number').toLowerCase();
+    if (hint.includes('currency') || hint.includes('usd') || hint.includes('dollar')) {
+      return formatCur(num);
+    }
+    if (hint.includes('percent') || hint.includes('pct')) {
+      return `${num.toFixed(1)}%`;
+    }
+
+    return Number.isInteger(num)
+      ? num.toLocaleString('en-US')
+      : num.toLocaleString('en-US', { maximumFractionDigits: 2 });
   }, [formatCur]);
 
   const contextSnapshot = useMemo(() => {
@@ -801,7 +1342,12 @@ const AIWorkbench = ({ compact = false }) => {
     retirementExpenses,
   ]);
 
-  const enrichResponseWithDeterministic = useCallback((response, deterministicReport) => {
+  const enrichResponseWithDeterministic = useCallback((
+    response,
+    deterministicReport,
+    snapshot = null,
+    preferDeterministicLead = false
+  ) => {
     if (!response || !deterministicReport) return response;
 
     const existingData = response.data && typeof response.data === 'object'
@@ -823,13 +1369,91 @@ const AIWorkbench = ({ compact = false }) => {
 
     const deterministicNumericalResults = buildDeterministicNumericalRows(deterministicReport);
     const deterministicScenarioRows = buildDeterministicScenarioRows(deterministicReport);
-    const deterministicActions = buildDeterministicActions(deterministicReport);
+    const deterministicActions = buildDeterministicActions(deterministicReport, snapshot);
+    const deterministicDeepAnalysis = buildDeterministicDeepAnalysis(deterministicReport, snapshot);
+    const deterministicScenarioResults = buildDeterministicScenarioResults(deterministicReport);
+    const deterministicWarnings = buildDeterministicWarnings(deterministicReport, snapshot);
+    const deterministicChartSpecs = buildDeterministicChartSpecs(deterministicReport);
+    const scenarioOverridePresent = hasScenarioOverrides(deterministicReport);
+    const shouldPrioritizeDeterministic = preferDeterministicLead || scenarioOverridePresent;
+
+    const baselineRetirementNetWorth = toFiniteNumber(deterministicReport?.baseline?.retirementNetWorth);
+    const scenarioRetirementNetWorth = toFiniteNumber(deterministicReport?.scenario?.retirementNetWorth);
+    const retirementDelta =
+      baselineRetirementNetWorth !== null && scenarioRetirementNetWorth !== null
+        ? scenarioRetirementNetWorth - baselineRetirementNetWorth
+        : null;
+
+    const deterministicDirectAnswer =
+      baselineRetirementNetWorth !== null && scenarioRetirementNetWorth !== null
+        ? `Local scenario math: retirement net worth is ${formatUsdInline(
+          baselineRetirementNetWorth
+        )} baseline vs ${formatUsdInline(scenarioRetirementNetWorth)} scenario (${formatSignedUsdInline(
+          retirementDelta
+        )}).`
+        : 'Local deterministic scenario math was merged into this response.';
+
+    const deterministicExecutiveSummary = [
+      `Retirement year baseline ${formatYearInline(deterministicReport?.baseline?.retirementYear)} vs scenario ${formatYearInline(
+        deterministicReport?.scenario?.retirementYear
+      )}.`,
+      `Coverage baseline ${formatRatioInline(deterministicReport?.baseline?.withdrawalCoverageRatio)} vs scenario ${formatRatioInline(
+        deterministicReport?.scenario?.withdrawalCoverageRatio
+      )}.`,
+      toFiniteNumber(deterministicReport?.scenario?.firstLiquidityGapYear) !== null
+        ? `Scenario liquidity gap appears by ${formatYearInline(deterministicReport.scenario.firstLiquidityGapYear)}.`
+        : '',
+    ].filter(Boolean).join(' ');
+
+    const modelDirectAnswer = cleanDisplayText(existingAnswer.directAnswer || existingData.directAnswer || '');
+    const modelExecutiveSummary = cleanDisplayText(existingAnswer.executiveSummary || existingData.executiveSummary || '');
 
     const modelActions = toList(existingAnswer.nextActions || existingData.nextActions);
-    const mergedActions = [...new Set([...deterministicActions, ...modelActions])].slice(0, 12);
+    const modelDeepAnalysis = toList(existingAnswer.deepAnalysis || existingData.deepAnalysis);
+    const modelScenarioResults = toList(existingAnswer.scenarioResults || existingData.scenarioResults);
+    const modelWarnings = toList(existingAnswer.warnings || existingData.warnings);
+    const modelChartSpecs = normalizeChartSpecs(existingAnswer.chartSpecs || existingData.chartSpecs);
+
+    const mergedChartSpecsRaw = shouldPrioritizeDeterministic
+      ? [...deterministicChartSpecs, ...modelChartSpecs]
+      : [...modelChartSpecs, ...deterministicChartSpecs];
+
+    const seenChartKeys = new Set();
+    const mergedChartSpecs = mergedChartSpecsRaw
+      .filter((spec) => {
+        const key = String(spec.id || spec.title || '').toLowerCase();
+        if (!key || seenChartKeys.has(key)) return false;
+        seenChartKeys.add(key);
+        return true;
+      })
+      .slice(0, 6);
+
+    const mergedActions = shouldPrioritizeDeterministic
+      ? compactUniqueList([...deterministicActions, ...modelActions], 12)
+      : compactUniqueList([...modelActions, ...deterministicActions.slice(0, 2)], 12);
+
+    const mergedDeepAnalysis = shouldPrioritizeDeterministic
+      ? compactUniqueList([...deterministicDeepAnalysis, ...modelDeepAnalysis], 16)
+      : compactUniqueList([...modelDeepAnalysis, ...deterministicDeepAnalysis], 16);
+
+    const mergedScenarioResults = shouldPrioritizeDeterministic
+      ? compactUniqueList([...deterministicScenarioResults, ...modelScenarioResults], 12)
+      : compactUniqueList([...modelScenarioResults, ...deterministicScenarioResults], 12);
+
+    const mergedWarnings = shouldPrioritizeDeterministic
+      ? compactUniqueList([...deterministicWarnings, ...modelWarnings], 8)
+      : compactUniqueList([...modelWarnings, ...deterministicWarnings], 8);
 
     const mergedAnswer = {
       ...existingAnswer,
+      directAnswer: shouldPrioritizeDeterministic
+        ? deterministicDirectAnswer
+        : (modelDirectAnswer || deterministicDirectAnswer),
+      executiveSummary: shouldPrioritizeDeterministic
+        ? cleanDisplayText(modelExecutiveSummary || deterministicExecutiveSummary)
+        : cleanDisplayText(modelExecutiveSummary || deterministicExecutiveSummary),
+      deepAnalysis: mergedDeepAnalysis,
+      scenarioResults: mergedScenarioResults,
       numericalResults: [
         ...deterministicNumericalResults,
         ...(Array.isArray(existingAnswer.numericalResults) ? existingAnswer.numericalResults : []),
@@ -837,7 +1461,9 @@ const AIWorkbench = ({ compact = false }) => {
       scenarioTable: deterministicScenarioRows.length > 0
         ? deterministicScenarioRows
         : (Array.isArray(existingAnswer.scenarioTable) ? existingAnswer.scenarioTable : []),
+      chartSpecs: mergedChartSpecs,
       nextActions: mergedActions,
+      warnings: mergedWarnings,
     };
 
     const mergedData = {
@@ -914,8 +1540,12 @@ const AIWorkbench = ({ compact = false }) => {
     setApplyStatus(status.ok ? 'Ollama is ready.' : (status.message || 'Ollama is not available.'));
   };
 
-  const runPrompt = async (overridePrompt = null) => {
-    const effectivePrompt = String(overridePrompt ?? prompt).trim();
+  const runPrompt = async (overridePrompt = null, forcedMode = null) => {
+    if (loading) return;
+
+    const hasPromptOverride = typeof overridePrompt === 'string';
+    const effectiveMode = forcedMode || mode;
+    const effectivePrompt = String(hasPromptOverride ? overridePrompt : prompt).trim();
 
     if (!effectivePrompt) {
       setResult({
@@ -927,7 +1557,7 @@ const AIWorkbench = ({ compact = false }) => {
       return;
     }
 
-    if (overridePrompt) {
+    if (hasPromptOverride) {
       setPrompt(effectivePrompt);
     }
 
@@ -938,7 +1568,7 @@ const AIWorkbench = ({ compact = false }) => {
       const parsedScenario = parseScenarioFromPrompt(effectivePrompt);
       const deterministicScenario = evaluateScenario(parsedScenario);
 
-      const contextPayload = mode === 'ask'
+      const contextPayload = effectiveMode === 'ask'
         ? {
             runtime: contextSnapshot.runtime,
             llmMode: contextSnapshot.llmMode,
@@ -969,7 +1599,7 @@ const AIWorkbench = ({ compact = false }) => {
       }
 
       const assembledPrompt = [
-        buildInstructions(mode, speedPreset),
+        buildInstructions(effectiveMode, speedPreset),
         '',
         ...contextBlocks,
         '',
@@ -996,25 +1626,49 @@ const AIWorkbench = ({ compact = false }) => {
         generationOptions,
       });
 
-      setResult(enrichResponseWithDeterministic(response, deterministicScenario));
+      setResult(
+        enrichResponseWithDeterministic(
+          response,
+          deterministicScenario,
+          contextSnapshot,
+          effectiveMode === 'simulate'
+        )
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const loadActionIntoPrompt = (actionText) => {
-    const cleaned = String(actionText || '').trim();
-    if (!cleaned) return;
+    const cleaned = toPromptString(actionText);
+    if (cleaned.toLowerCase() === '[object object]') {
+      setApplyStatus('That continuation payload is invalid. Try another item.');
+      return;
+    }
+    if (!cleaned) {
+      setApplyStatus('Continuation text was empty.');
+      return;
+    }
     setMode('ask');
     setPrompt(cleaned);
     setApplyStatus('Action loaded into prompt. Click Ask Copilot to run it.');
   };
 
-  const runActionNow = (actionText) => {
-    const cleaned = String(actionText || '').trim();
-    if (!cleaned) return;
+  const runActionNow = async (actionText) => {
+    const cleaned = toPromptString(actionText);
+    if (cleaned.toLowerCase() === '[object object]') {
+      setApplyStatus('That continuation payload is invalid. Try another item.');
+      return;
+    }
+    if (!cleaned) {
+      setApplyStatus('Continuation text was empty.');
+      return;
+    }
+
     setMode('ask');
-    runPrompt(cleaned);
+    setPrompt(cleaned);
+    setApplyStatus(`Running continuation: ${truncate(cleaned, 90)}`);
+    await runPrompt(cleaned, 'ask');
   };
 
   const handleApply = () => {
@@ -1055,6 +1709,255 @@ const AIWorkbench = ({ compact = false }) => {
     toFiniteNumber(deterministicScenario?.baseline?.retirementNetWorth) !== null
       ? Number(deterministicScenario.scenario.retirementNetWorth) - Number(deterministicScenario.baseline.retirementNetWorth)
       : null;
+
+  const analysisCoverage = useMemo(() => {
+    const startYear = toFiniteNumber(contextSnapshot.projectionSummary.startYear);
+    const endYear = toFiniteNumber(contextSnapshot.projectionSummary.endYear);
+    const horizonYears =
+      startYear !== null && endYear !== null
+        ? Math.max(0, endYear - startYear + 1)
+        : null;
+
+    return {
+      horizonYears,
+      projectionRows: financialData.length,
+      assumptionCount: Object.keys(contextSnapshot.keyAssumptions || {}).length,
+      hasSelectedText: !!selectedText,
+      hasScreenshot: !!screenshotDataUrl,
+    };
+  }, [
+    contextSnapshot.keyAssumptions,
+    contextSnapshot.projectionSummary.endYear,
+    contextSnapshot.projectionSummary.startYear,
+    financialData.length,
+    selectedText,
+    screenshotDataUrl,
+  ]);
+
+  const renderableChartSpecs = useMemo(() => {
+    const base = Array.isArray(normalizedResult.chartSpecs) ? normalizedResult.chartSpecs : [];
+    const deterministic = buildDeterministicChartSpecs(deterministicScenario);
+    const combined = [...base, ...deterministic];
+
+    const seen = new Set();
+    return combined
+      .filter((spec) => {
+        const key = String(spec?.id || spec?.title || '').toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 6);
+  }, [normalizedResult.chartSpecs, deterministicScenario]);
+
+  useEffect(() => {
+    if (!renderableChartSpecs.length) {
+      setActiveChartId('');
+      return;
+    }
+
+    if (!activeChartId || !renderableChartSpecs.some((spec) => spec.id === activeChartId)) {
+      setActiveChartId(renderableChartSpecs[0].id);
+    }
+  }, [activeChartId, renderableChartSpecs]);
+
+  const activeChartSpec = useMemo(
+    () => renderableChartSpecs.find((spec) => spec.id === activeChartId) || renderableChartSpecs[0] || null,
+    [renderableChartSpecs, activeChartId]
+  );
+
+  const activeChartDataRaw = useMemo(() => {
+    if (!activeChartSpec) return [];
+    return resolveChartData(activeChartSpec, deterministicScenario);
+  }, [activeChartSpec, deterministicScenario]);
+
+  const activeChartData = useMemo(() => {
+    if (!activeChartSpec || !Array.isArray(activeChartDataRaw)) return [];
+
+    if (activeChartSpec.xKey !== 'year') {
+      return activeChartDataRaw;
+    }
+
+    const years = activeChartDataRaw
+      .map((row) => toFiniteNumber(row?.year))
+      .filter((year) => year !== null);
+
+    if (!years.length) {
+      return activeChartDataRaw;
+    }
+
+    const maxYear = Math.max(...years);
+    const minYear = maxYear - chartWindowYears + 1;
+
+    return activeChartDataRaw.filter((row) => {
+      const year = toFiniteNumber(row?.year);
+      return year === null || year >= minYear;
+    });
+  }, [activeChartSpec, activeChartDataRaw, chartWindowYears]);
+
+  const activeChartSeries = useMemo(() => {
+    if (!activeChartSpec) return [];
+
+    return activeChartSpec.series.filter((series) => {
+      const key = String(series.key || '').toLowerCase();
+      if (!showBaselineSeries && key.includes('baseline')) return false;
+      if (!showScenarioSeries && key.includes('scenario')) return false;
+      return true;
+    });
+  }, [activeChartSpec, showBaselineSeries, showScenarioSeries]);
+
+  const canAdjustChartWindow = useMemo(() => {
+    if (!activeChartSpec || activeChartSpec.xKey !== 'year') return false;
+    return activeChartDataRaw.some((row) => toFiniteNumber(row?.year) !== null);
+  }, [activeChartSpec, activeChartDataRaw]);
+
+  const tableComparisonRows = useMemo(() => {
+    const rows = Array.isArray(deterministicScenario?.comparisonSeries)
+      ? deterministicScenario.comparisonSeries
+      : [];
+
+    if (!rows.length) return [];
+
+    return rows.slice(-12).map((row) => ({
+      year: row.year,
+      baselineNetWorth: toFiniteNumber(row.baselineNetWorth),
+      scenarioNetWorth: toFiniteNumber(row.scenarioNetWorth),
+      baselineExpenses: toFiniteNumber(row.baselineExpenses),
+      scenarioExpenses: toFiniteNumber(row.scenarioExpenses),
+      baselineLiquidityGap: toFiniteNumber(row.baselineLiquidityGap),
+      scenarioLiquidityGap: toFiniteNumber(row.scenarioLiquidityGap),
+    }));
+  }, [deterministicScenario]);
+
+  const activeChartElement = useMemo(() => {
+    if (!activeChartSpec || !activeChartData.length || !activeChartSeries.length) {
+      return null;
+    }
+
+    const defaultFormat = activeChartSeries[0]?.format || 'number';
+
+    const tooltipRenderer = ({ active, payload, label }) => {
+      if (!active || !payload || !payload.length) return null;
+
+      return (
+        <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-2.5 shadow-xl text-[11px]">
+          <p className="text-slate-300 font-semibold mb-1">{activeChartSpec.xKey}: {label}</p>
+          <div className="space-y-1">
+            {payload.map((entry) => (
+              <div key={`${entry.dataKey}-${entry.value}`} className="flex items-center justify-between gap-3">
+                <span className="font-medium" style={{ color: entry.color || '#cbd5e1' }}>
+                  {entry.name}
+                </span>
+                <span className="text-slate-100 font-semibold">
+                  {formatChartValue(entry.value, entry?.payload?.[`${entry.dataKey}Format`] || defaultFormat)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    const commonProps = {
+      data: activeChartData,
+      margin: { top: 10, right: 16, left: 0, bottom: 8 },
+    };
+
+    const axisX = (
+      <XAxis
+        dataKey={activeChartSpec.xKey}
+        stroke="#475569"
+        tick={{ fontSize: 11, fill: '#94a3b8' }}
+        axisLine={false}
+        tickLine={false}
+      />
+    );
+
+    const axisY = (
+      <YAxis
+        tickFormatter={(value) => formatChartValue(value, defaultFormat)}
+        stroke="#475569"
+        tick={{ fontSize: 11, fill: '#94a3b8' }}
+        axisLine={false}
+        tickLine={false}
+        width={68}
+      />
+    );
+
+    if (activeChartSpec.chartType === 'bar') {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart {...commonProps}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+            {axisX}
+            {axisY}
+            <RechartTooltip content={tooltipRenderer} />
+            <Legend wrapperStyle={{ fontSize: '11px' }} />
+            {activeChartSeries.map((series, index) => (
+              <Bar
+                key={series.key}
+                dataKey={series.key}
+                name={series.label}
+                fill={series.color || CHART_COLORS[index % CHART_COLORS.length]}
+                radius={[4, 4, 0, 0]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    if (activeChartSpec.chartType === 'area') {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart {...commonProps}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+            {axisX}
+            {axisY}
+            <RechartTooltip content={tooltipRenderer} />
+            <Legend wrapperStyle={{ fontSize: '11px' }} />
+            {activeChartSeries.map((series, index) => (
+              <Area
+                key={series.key}
+                type="monotone"
+                dataKey={series.key}
+                name={series.label}
+                stroke={series.color || CHART_COLORS[index % CHART_COLORS.length]}
+                fill={series.color || CHART_COLORS[index % CHART_COLORS.length]}
+                fillOpacity={0.18}
+                strokeWidth={2}
+                dot={false}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart {...commonProps}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+          {axisX}
+          {axisY}
+          <RechartTooltip content={tooltipRenderer} />
+          <Legend wrapperStyle={{ fontSize: '11px' }} />
+          {activeChartSeries.map((series, index) => (
+            <Line
+              key={series.key}
+              type="monotone"
+              dataKey={series.key}
+              name={series.label}
+              stroke={series.color || CHART_COLORS[index % CHART_COLORS.length]}
+              strokeWidth={2.2}
+              dot={false}
+              activeDot={{ r: 4 }}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    );
+  }, [activeChartSpec, activeChartData, activeChartSeries, formatChartValue]);
 
   return (
     <div className={rootClass}>
@@ -1191,7 +2094,7 @@ const AIWorkbench = ({ compact = false }) => {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={runPrompt}
+            onClick={() => runPrompt()}
             disabled={loading}
             className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold"
           >
@@ -1402,27 +2305,179 @@ const AIWorkbench = ({ compact = false }) => {
 
               {result.success && (
                 <>
+                  <div className="rounded-lg border border-slate-600/40 bg-slate-900/70 px-3 py-2">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">Analysis Coverage</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                      <div className="bg-slate-950/60 border border-slate-700 rounded-md px-2 py-1.5">
+                        <p className="text-slate-500">Projection Horizon</p>
+                        <p className="text-slate-200 font-semibold">
+                          {analysisCoverage.horizonYears !== null ? `${analysisCoverage.horizonYears} years` : '-'}
+                        </p>
+                      </div>
+                      <div className="bg-slate-950/60 border border-slate-700 rounded-md px-2 py-1.5">
+                        <p className="text-slate-500">Rows Analyzed</p>
+                        <p className="text-slate-200 font-semibold">{analysisCoverage.projectionRows}</p>
+                      </div>
+                      <div className="bg-slate-950/60 border border-slate-700 rounded-md px-2 py-1.5">
+                        <p className="text-slate-500">Assumptions Used</p>
+                        <p className="text-slate-200 font-semibold">{analysisCoverage.assumptionCount}</p>
+                      </div>
+                      <div className="bg-slate-950/60 border border-slate-700 rounded-md px-2 py-1.5">
+                        <p className="text-slate-500">Extra Context</p>
+                        <p className="text-slate-200 font-semibold">
+                          {analysisCoverage.hasSelectedText || analysisCoverage.hasScreenshot ? 'Included' : 'None'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {renderableChartSpecs.length > 0 && (
+                    <div className="rounded-xl border border-slate-600/50 bg-slate-900/80 px-3 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-300 flex items-center gap-1.5">
+                          <BarChart3 size={12} className="text-emerald-300" />
+                          Interactive Simulation Lab
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {activeChartSpec ? `${activeChartSpec.chartType.toUpperCase()} chart` : 'No chart selected'}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {renderableChartSpecs.map((spec) => (
+                          <button
+                            key={spec.id}
+                            type="button"
+                            onClick={() => setActiveChartId(spec.id)}
+                            className={`px-2.5 py-1.5 rounded-md border text-[11px] font-semibold transition-colors ${
+                              activeChartSpec?.id === spec.id
+                                ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
+                                : 'bg-slate-950/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            {truncate(spec.title, 36)}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowBaselineSeries((prev) => !prev)}
+                          className={`px-2.5 py-2 rounded-md border text-[11px] font-semibold ${
+                            showBaselineSeries
+                              ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
+                              : 'bg-slate-950/60 border-slate-700 text-slate-400'
+                          }`}
+                        >
+                          {showBaselineSeries ? 'Hide Baseline Series' : 'Show Baseline Series'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowScenarioSeries((prev) => !prev)}
+                          className={`px-2.5 py-2 rounded-md border text-[11px] font-semibold ${
+                            showScenarioSeries
+                              ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
+                              : 'bg-slate-950/60 border-slate-700 text-slate-400'
+                          }`}
+                        >
+                          {showScenarioSeries ? 'Hide Scenario Series' : 'Show Scenario Series'}
+                        </button>
+
+                        {canAdjustChartWindow ? (
+                          <label className="rounded-md border border-slate-700 bg-slate-950/60 px-2.5 py-2 text-[11px] text-slate-300 flex flex-col gap-1">
+                            <span className="text-slate-400">Window: {chartWindowYears} years</span>
+                            <input
+                              type="range"
+                              min={10}
+                              max={90}
+                              value={chartWindowYears}
+                              onChange={(e) => setChartWindowYears(Math.max(10, Math.min(90, Number(e.target.value) || 35)))}
+                              className="accent-emerald-400"
+                            />
+                          </label>
+                        ) : (
+                          <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2.5 py-2 text-[11px] text-slate-500">
+                            Window control available for yearly charts.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="h-[300px] w-full rounded-lg border border-slate-700 bg-slate-950/40 p-2">
+                        {activeChartElement || (
+                          <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                            No chart data available for this selection.
+                          </div>
+                        )}
+                      </div>
+
+                      {activeChartSpec?.description && (
+                        <p className="mt-2 text-[11px] text-slate-400 leading-relaxed">
+                          {activeChartSpec.description}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {tableComparisonRows.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-emerald-300 mb-1">Projection Comparison Table (Recent Years)</p>
+                      <div className="overflow-x-auto rounded-md border border-emerald-500/30">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-emerald-500/10 text-emerald-200">
+                            <tr>
+                              <th className="text-left px-2 py-1.5">Year</th>
+                              <th className="text-left px-2 py-1.5">Base Net Worth</th>
+                              <th className="text-left px-2 py-1.5">Scenario Net Worth</th>
+                              <th className="text-left px-2 py-1.5">Base Liquidity Gap</th>
+                              <th className="text-left px-2 py-1.5">Scenario Liquidity Gap</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tableComparisonRows.map((row) => (
+                              <tr key={`cmp-${row.year}`} className="border-t border-emerald-500/20 bg-slate-900/70 text-emerald-50">
+                                <td className="px-2 py-1.5 align-top">{row.year}</td>
+                                <td className="px-2 py-1.5 align-top">{row.baselineNetWorth !== null ? formatCur(row.baselineNetWorth) : '-'}</td>
+                                <td className="px-2 py-1.5 align-top font-semibold">{row.scenarioNetWorth !== null ? formatCur(row.scenarioNetWorth) : '-'}</td>
+                                <td className="px-2 py-1.5 align-top">{row.baselineLiquidityGap !== null ? formatCur(row.baselineLiquidityGap) : '-'}</td>
+                                <td className="px-2 py-1.5 align-top">{row.scenarioLiquidityGap !== null ? formatCur(row.scenarioLiquidityGap) : '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   {normalizedResult.directAnswer ? (
                     <div className="rounded-lg border border-sky-600/40 bg-sky-500/10 px-3 py-2 text-sky-100">
                       <p className="text-[11px] uppercase tracking-wide text-sky-300 mb-1">Direct Answer</p>
-                      <p className="text-sm text-white leading-relaxed">{normalizedResult.directAnswer}</p>
+                      <p className="text-sm text-white leading-relaxed">{cleanDisplayText(normalizedResult.directAnswer)}</p>
                     </div>
                   ) : null}
 
                   {normalizedResult.executiveSummary ? (
                     <div className="rounded-lg border border-indigo-600/40 bg-indigo-500/10 px-3 py-2 text-indigo-100">
                       <p className="text-[11px] uppercase tracking-wide text-indigo-300 mb-1">Executive Summary</p>
-                      <p className="text-sm text-white leading-relaxed">{normalizedResult.executiveSummary}</p>
+                      <p className="text-sm text-white leading-relaxed">{cleanDisplayText(normalizedResult.executiveSummary)}</p>
                     </div>
                   ) : null}
 
                   {normalizedResult.deepAnalysis.length > 0 && (
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">Deep Analysis</p>
-                      <ul className="space-y-1.5">
-                        {normalizedResult.deepAnalysis.map((point) => (
-                          <li key={point} className="text-slate-200 bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
-                            {point}
+                      <ul className="space-y-2">
+                        {normalizedResult.deepAnalysis.map((point, index) => (
+                          <li
+                            key={`${index}-${point}`}
+                            className="text-slate-100 bg-slate-900/80 border border-slate-700 rounded-md px-2.5 py-2"
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-sky-500/20 text-sky-300 text-[11px] font-semibold">
+                                {index + 1}
+                              </span>
+                              <span className="leading-relaxed">{point}</span>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -1432,9 +2487,13 @@ const AIWorkbench = ({ compact = false }) => {
                   {normalizedResult.scenarioResults.length > 0 && (
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-1">Scenario Results</p>
-                      <ul className="space-y-1.5">
-                        {normalizedResult.scenarioResults.map((row) => (
-                          <li key={row} className="text-cyan-100 bg-cyan-500/10 border border-cyan-500/30 rounded-md px-2 py-1.5">
+                      <ul className="space-y-2">
+                        {normalizedResult.scenarioResults.map((row, index) => (
+                          <li
+                            key={`${index}-${row}`}
+                            className="text-cyan-100 bg-cyan-500/10 border border-cyan-500/30 rounded-md px-2.5 py-2"
+                          >
+                            <span className="text-cyan-300 font-semibold mr-2">#{index + 1}</span>
                             {row}
                           </li>
                         ))}
@@ -1446,8 +2505,8 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-slate-300 mb-1">Assumptions Reviewed</p>
                       <ul className="space-y-1.5">
-                        {normalizedResult.assumptions.map((item) => (
-                          <li key={item} className="text-slate-100 bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+                        {normalizedResult.assumptions.map((item, index) => (
+                          <li key={`assumption-${index}`} className="text-slate-100 bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
                             {item}
                           </li>
                         ))}
@@ -1459,8 +2518,8 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-rose-300 mb-1">Risks</p>
                       <ul className="space-y-1.5">
-                        {normalizedResult.risks.map((risk) => (
-                          <li key={risk} className="text-rose-100 bg-rose-500/10 border border-rose-500/30 rounded-md px-2 py-1.5">
+                        {normalizedResult.risks.map((risk, index) => (
+                          <li key={`risk-${index}`} className="text-rose-100 bg-rose-500/10 border border-rose-500/30 rounded-md px-2 py-1.5">
                             {risk}
                           </li>
                         ))}
@@ -1472,8 +2531,8 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-violet-300 mb-1">Recommendations</p>
                       <ul className="space-y-1.5">
-                        {normalizedResult.recommendations.map((rec) => (
-                          <li key={rec} className="text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-md px-2 py-1.5">
+                        {normalizedResult.recommendations.map((rec, index) => (
+                          <li key={`recommendation-${index}`} className="text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-md px-2 py-1.5">
                             {rec}
                           </li>
                         ))}
@@ -1547,8 +2606,8 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-amber-300 mb-1">Warnings</p>
                       <ul className="space-y-1.5">
-                        {normalizedResult.warnings.map((warning) => (
-                          <li key={warning} className="text-amber-100 bg-amber-500/10 border border-amber-500/30 rounded-md px-2 py-1.5">
+                        {normalizedResult.warnings.map((warning, index) => (
+                          <li key={`warning-${index}`} className="text-amber-100 bg-amber-500/10 border border-amber-500/30 rounded-md px-2 py-1.5">
                             {warning}
                           </li>
                         ))}
@@ -1560,8 +2619,8 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-emerald-300 mb-1">Next Actions</p>
                       <ul className="space-y-2">
-                        {normalizedResult.nextActions.map((action) => (
-                          <li key={action} className="text-emerald-100 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-2 py-1.5">
+                        {normalizedResult.nextActions.map((action, index) => (
+                          <li key={`next-action-${index}`} className="text-emerald-100 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-2 py-1.5">
                             <div className="flex items-start justify-between gap-2">
                               <span className="leading-relaxed">{action}</span>
                               <div className="flex items-center gap-1 shrink-0">
@@ -1575,7 +2634,8 @@ const AIWorkbench = ({ compact = false }) => {
                                 <button
                                   type="button"
                                   onClick={() => runActionNow(action)}
-                                  className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-[11px]"
+                                  disabled={loading}
+                                  className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[11px]"
                                 >
                                   Run
                                 </button>
@@ -1591,14 +2651,15 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-blue-300 mb-1">Follow-Ups</p>
                       <ul className="space-y-2">
-                        {normalizedResult.followUps.map((item) => (
-                          <li key={item} className="text-blue-100 bg-blue-500/10 border border-blue-500/30 rounded-md px-2 py-1.5">
+                        {normalizedResult.followUps.map((item, index) => (
+                          <li key={`follow-up-${index}`} className="text-blue-100 bg-blue-500/10 border border-blue-500/30 rounded-md px-2 py-1.5">
                             <div className="flex items-start justify-between gap-2">
                               <span className="leading-relaxed">{item}</span>
                               <button
                                 type="button"
                                 onClick={() => runActionNow(item)}
-                                className="px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white text-[11px] shrink-0"
+                                disabled={loading}
+                                className="px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[11px] shrink-0"
                               >
                                 Run
                               </button>
@@ -1617,7 +2678,8 @@ const AIWorkbench = ({ compact = false }) => {
                           key={suggestion}
                           type="button"
                           onClick={() => runActionNow(suggestion)}
-                          className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] border border-slate-700"
+                          disabled={loading}
+                          className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed text-slate-200 text-[11px] border border-slate-700"
                         >
                           {truncate(suggestion, 52)}
                         </button>
@@ -1629,8 +2691,8 @@ const AIWorkbench = ({ compact = false }) => {
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-violet-300 mb-1">Proposed Edits</p>
                       <ul className="space-y-1.5">
-                        {editSummaryRows.map((row) => (
-                          <li key={row} className="text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-md px-2 py-1.5">
+                        {editSummaryRows.map((row, index) => (
+                          <li key={`edit-summary-${index}`} className="text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-md px-2 py-1.5">
                             {row}
                           </li>
                         ))}

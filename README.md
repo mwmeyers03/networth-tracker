@@ -9,6 +9,10 @@ This repo supports:
 - Local Ollama/Gemma integration
 - AI Workbench tab for simulation prompts and structured app-state edits
 
+Architecture reference:
+
+- `ARCHITECTURE_ROSETTA_STONE.md` (canonical implementation and extension guide)
+
 ## Features
 
 - Dashboard, ledger, retirement, and budget views

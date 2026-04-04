@@ -564,6 +564,60 @@ export const DataProvider = ({ children }) => {
     const baselineSummary = summarizeProjection(financialData, globals, retirementExpenses);
     const scenarioSummary = summarizeProjection(scenarioRows, scenarioGlobals, scenarioRetirementExpenses);
 
+    const baselinePreview = financialData.slice(0, 18).map((row) => ({
+      year: row.year,
+      netWorth: Math.round(row.netWorth),
+      combinedExp: Math.round(row.combinedExp),
+      combinedGross: Math.round(row.combinedGross),
+      liquidityGap: Math.round(row.liquidityGap || 0),
+      retired: !!row.retired,
+    }));
+
+    const comparisonSeries = scenarioRows.map((row, index) => {
+      const baseRow = financialData[index] || null;
+
+      return {
+        year: row.year,
+        baselineNetWorth: baseRow ? Math.round(baseRow.netWorth) : null,
+        scenarioNetWorth: Math.round(row.netWorth),
+        baselineIncome: baseRow ? Math.round(baseRow.combinedGross) : null,
+        scenarioIncome: Math.round(row.combinedGross),
+        baselineExpenses: baseRow ? Math.round(baseRow.combinedExp) : null,
+        scenarioExpenses: Math.round(row.combinedExp),
+        baselineLiquidityGap: baseRow ? Math.round(baseRow.liquidityGap || 0) : null,
+        scenarioLiquidityGap: Math.round(row.liquidityGap || 0),
+        baselineCash: baseRow ? Math.round(baseRow.savingsBal || 0) : null,
+        scenarioCash: Math.round(row.savingsBal || 0),
+        retired: !!row.retired,
+      };
+    });
+
+    const baselineRetirementRow = financialData.find((row) => row.retired) || financialData[financialData.length - 1] || null;
+    const scenarioRetirementRow = scenarioRows.find((row) => row.retired) || scenarioRows[scenarioRows.length - 1] || null;
+
+    const allocationComparison = [
+      {
+        bucket: '401K',
+        baseline: baselineRetirementRow ? Math.round(baselineRetirementRow.total401k || 0) : null,
+        scenario: scenarioRetirementRow ? Math.round(scenarioRetirementRow.total401k || 0) : null,
+      },
+      {
+        bucket: 'Roth',
+        baseline: baselineRetirementRow ? Math.round(baselineRetirementRow.rothBal || 0) : null,
+        scenario: scenarioRetirementRow ? Math.round(scenarioRetirementRow.rothBal || 0) : null,
+      },
+      {
+        bucket: 'Brokerage',
+        baseline: baselineRetirementRow ? Math.round(baselineRetirementRow.brokerageBal || 0) : null,
+        scenario: scenarioRetirementRow ? Math.round(scenarioRetirementRow.brokerageBal || 0) : null,
+      },
+      {
+        bucket: 'Cash',
+        baseline: baselineRetirementRow ? Math.round(baselineRetirementRow.savingsBal || 0) : null,
+        scenario: scenarioRetirementRow ? Math.round(scenarioRetirementRow.savingsBal || 0) : null,
+      },
+    ];
+
     return {
       inputs: {
         inflationRate,
@@ -577,6 +631,7 @@ export const DataProvider = ({ children }) => {
       },
       baseline: baselineSummary,
       scenario: scenarioSummary,
+      baselinePreview,
       scenarioPreview: scenarioRows.slice(0, 18).map((row) => ({
         year: row.year,
         netWorth: Math.round(row.netWorth),
@@ -585,6 +640,8 @@ export const DataProvider = ({ children }) => {
         liquidityGap: Math.round(row.liquidityGap || 0),
         retired: !!row.retired,
       })),
+      comparisonSeries,
+      allocationComparison,
     };
   }, [
     globals,
