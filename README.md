@@ -1,147 +1,32 @@
-# Net Worth Tracker (Web + Desktop EXE)
+# Snooks — unified FIRE planner
 
-Net Worth Tracker is a CRA + Electron app for retirement forecasting, yearly ledger editing, and Monte Carlo analysis.
+Snooks is a private-by-default retirement and net-worth planner. This branch consolidates the richer FIRE planner into the canonical `mwmeyers03/networth-tracker` repository so the cloud preview, browser app, and portable desktop wrapper share one calculation engine.
 
-This repo supports:
+## What is unified
 
-- Web deployment (Vercel/static host)
-- Desktop Windows installer (.exe) via Electron
-- Local Ollama/Gemma integration
-- AI Workbench tab for simulation prompts and structured app-state edits
+- Deterministic annual projections with editable person, salary, expense, housing, tax, and account inputs.
+- A surplus waterfall that fills legal tax-advantaged space, then sweeps remaining disposable surplus into taxable brokerage without an arbitrary partner cap.
+- Retirement bridge/access modeling for taxable basis, Roth basis, conversion lots, and early-access fallback paths.
+- Monte Carlo, historical-sequence, and stress-case retirement tests with explicit `PORTFOLIO_DEPLETED` vs `ACCESS_GATED` diagnostics.
+- Annual ledger, assumptions, healthcare/ACA, tax-year, withdrawal-comparison, scenario, and export views.
+- Browser-local persistence and JSON backup/restore. No financial data is sent to a server by the planner.
+- Existing desktop/portable and legacy tracker code remains in the repository for parity work; the new Vite entry point is the shared UI source.
 
-Architecture reference:
-
-- `ARCHITECTURE_ROSETTA_STONE.md` (canonical implementation and extension guide)
-
-## Features
-
-- Dashboard, ledger, retirement, and budget views
-- Monte Carlo simulation with percentile fan chart
-- Ollama status badge in the top header
-- Settings drawer closes with the Esc key
-- AI Workbench:
-  - Run Gemma prompts in app
-  - Simulate strategy/risk scenarios
-  - Apply structured edits across app state (globals, expenses, retirement spend, ledger overrides)
-
-## Prerequisites
-
-- Node.js 18+
-- npm 9+
-- Ollama installed locally for desktop/local AI mode
-
-Optional for web fallback:
-
-- A cloud LLM proxy endpoint compatible with JSON request/response
-- Or explicitly enable the optional external HTTPS fallback after reviewing its privacy implications
-
-## Environment setup
-
-Copy `.env.example` to `.env` (or `.env.local`) and configure values:
-
-```bash
-REACT_APP_OLLAMA_BASE_URL=http://localhost:11434/api/generate
-REACT_APP_MODEL_CPU=gemma4:e4b-it-q4_K_M
-REACT_APP_MODEL_GPU=gemma4:26b-a4b-it-q4_K_M
-REACT_APP_SYSTEM_PROMPT=Never store sensitive data. Respond only with valid JSON not markdown fences.
-REACT_APP_LLM_MODE=auto
-REACT_APP_OLLAMA_KEEP_ALIVE=30m
-REACT_APP_CLOUD_LLM_URL=
-REACT_APP_ENABLE_FREE_WEB_LLM=false
-REACT_APP_FREE_WEB_LLM_URL=https://text.pollinations.ai/openai
-REACT_APP_FREE_WEB_LLM_SIMPLE_URL=https://text.pollinations.ai
-REACT_APP_FREE_WEB_LLM_MODEL=openai
-```
-
-If using local Ollama, pull models once:
-
-```bash
-ollama pull gemma4:e4b-it-q4_K_M
-ollama pull gemma4:26b-a4b-it-q4_K_M
-```
-
-Start Ollama:
-
-```bash
-ollama serve
-```
-
-## Run in development
-
-Install dependencies:
+## Run locally
 
 ```bash
 npm install
+npm run build
+npm test
+npm run dev
 ```
 
-Web only:
+The build compiles the headless engine first, then builds the Vite app into `dist/`. The Vercel configuration points to that output directory.
 
-```bash
-npm start
-```
+## Data safety
 
-Desktop + web together:
+The repository contains generic demo defaults only. Entered plans are stored in the browser profile and can be exported as JSON for backup. Do not commit a backup containing real account numbers or other sensitive identifiers.
 
-```bash
-npm run electron:dev
-```
+## Feature parity roadmap
 
-## Build Windows EXE
-
-Generate installer:
-
-```bash
-npm run electron:build
-```
-
-Output folder:
-
-- `dist/Net Worth Tracker Setup*.exe`
-- `dist/win-unpacked/Net Worth Tracker.exe` (portable, no installer)
-
-Installed app location (default NSIS per-user install):
-
-- `%LocalAppData%\Programs\Net Worth Tracker\Net Worth Tracker.exe`
-
-Unpacked desktop build for quick testing:
-
-```bash
-npm run electron:build:dir
-```
-
-## AI Workbench usage
-
-Open the `AI` tab.
-
-1. Choose mode:
-   - `Simulate` for scenario analysis
-   - `Edit Program State` for direct structured updates
-2. Choose model tier:
-   - CPU model for speed
-   - GPU model for deeper planning
-3. Enter prompt and run query.
-4. If response includes `edits`, click `Apply Edits to App`.
-
-## Important behavior and limits
-
-- AI edits are applied to simulation state, not source code files.
-- AI can update:
-  - global assumptions
-  - Michael/Brianna expense categories
-  - retirement yearly spend
-  - yearly ledger overrides
-- Web parity is preserved for core functionality.
-- LLM provider parity is configurable:
-  - Desktop can use local Ollama
-  - Web can use cloud proxy or built-in free HTTPS fallback
-
-## Troubleshooting
-
-- If `No AI` badge appears, verify Ollama is running and reachable at `/api/tags`.
-- If a query fails, inspect the AI result panel for endpoint error details.
-- If EXE build fails on first run, re-run `npm install` then `npm run electron:build`.
-- Large first-query latency is normal when a model is cold-loading into VRAM/RAM. Keep-alive is enabled (`REACT_APP_OLLAMA_KEEP_ALIVE=30m`) so subsequent queries are much faster.
-- If web deployment is HTTPS and local Ollama URL is `http://localhost`, browser mixed-content rules block requests. Use desktop EXE for local Ollama, or configure `REACT_APP_CLOUD_LLM_URL` for web fallback.
-- In `auto` mode, when local HTTP Ollama is blocked in the browser, the app can fall back to `REACT_APP_FREE_WEB_LLM_URL` automatically.
-- If the free-web POST route is blocked in-browser, the app falls back to `REACT_APP_FREE_WEB_LLM_SIMPLE_URL` automatically.
-- Free web fallback is disabled by default. Enabling it requires REACT_APP_ENABLE_FREE_WEB_LLM=true. It sends prompts and supplied context to an external provider; do not send secrets or sensitive personal data. Invalid or missing enable values keep it disabled.
+The canonical app now owns the planner UI and calculation engine. The legacy dashboard, CSV/export helpers, simulation views, and desktop wrapper remain available while their entry points are being redirected to the shared engine. Optional local AI/automation integrations are kept opt-in and are not required for calculations.
