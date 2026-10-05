@@ -33,7 +33,7 @@ Architecture reference:
 Optional for web fallback:
 
 - A cloud LLM proxy endpoint compatible with JSON request/response
-- Or keep the built-in free HTTPS fallback enabled
+- Or explicitly enable the optional external HTTPS fallback after reviewing its privacy implications
 
 ## Environment setup
 
@@ -47,7 +47,7 @@ REACT_APP_SYSTEM_PROMPT=Never store sensitive data. Respond only with valid JSON
 REACT_APP_LLM_MODE=auto
 REACT_APP_OLLAMA_KEEP_ALIVE=30m
 REACT_APP_CLOUD_LLM_URL=
-REACT_APP_ENABLE_FREE_WEB_LLM=true
+REACT_APP_ENABLE_FREE_WEB_LLM=false
 REACT_APP_FREE_WEB_LLM_URL=https://text.pollinations.ai/openai
 REACT_APP_FREE_WEB_LLM_SIMPLE_URL=https://text.pollinations.ai
 REACT_APP_FREE_WEB_LLM_MODEL=openai
@@ -144,4 +144,4 @@ Open the `AI` tab.
 - If web deployment is HTTPS and local Ollama URL is `http://localhost`, browser mixed-content rules block requests. Use desktop EXE for local Ollama, or configure `REACT_APP_CLOUD_LLM_URL` for web fallback.
 - In `auto` mode, when local HTTP Ollama is blocked in the browser, the app can fall back to `REACT_APP_FREE_WEB_LLM_URL` automatically.
 - If the free-web POST route is blocked in-browser, the app falls back to `REACT_APP_FREE_WEB_LLM_SIMPLE_URL` automatically.
-- Free web fallback is an external provider. Do not send secrets or sensitive personal data in prompts when using web fallback.
+- Free web fallback is disabled by default. Enabling it requires REACT_APP_ENABLE_FREE_WEB_LLM=true. It sends prompts and supplied context to an external provider; do not send secrets or sensitive personal data. Invalid or missing enable values keep it disabled.
