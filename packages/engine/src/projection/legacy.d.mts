@@ -1,0 +1,16 @@
+import type {Plan,ProjectionPerson,Account,MarketReturn,ProjectionRow,HouseholdTax,HealthRow,HealthPerson,CoverageMonths,EffectiveSavingsStrategy,RetirementEnvelope,HousingYear,BudgetRow,Expense} from './contracts.js';
+import type {WaterfallResult} from '../cashflow/waterfall.js';
+export function clone<T>(value:T):T;
+export function validate(value:Plan):string[];
+export function housingSchedule(plan:Plan,returns:MarketReturn[]|null):HousingYear[];
+export function accessBreakdown(account:Account,person:ProjectionPerson,year:number):import('./contracts.js').AccessBreakdown;
+export function salaryAt(person:ProjectionPerson & {forecastStart:number},year:number,override:number|undefined,options:{inflation:number;inflationByYear:Record<number,number>}):number;
+export function employerContribution(wages:number,employee:number,person:ProjectionPerson,index:number):{amount:number;graded:number};
+export function healthcareAt(plan:Plan,year:number,tax:HouseholdTax,history:ProjectionRow[]):HealthRow;
+export function povertyLevel(year:number,size:number,growth?:number):number;
+export function coverageMonths(person:ProjectionPerson,input:HealthPerson,year:number):CoverageMonths;
+export function effectiveStrategy(person:ProjectionPerson,index:number,override:number|undefined):EffectiveSavingsStrategy;
+export function annualSavingsFlow(input:{wages:number;otherIncome:number;employee:number;employer:number;limits:{k:number;ira:number};roth:number;rothEligible:number;payrollTax:number;federalTax:number;expenses:number;reserve:number;strategy:NonNullable<EffectiveSavingsStrategy>;index:number;employeeHsa?:number;megaRequested?:number}):WaterfallResult;
+export function retirementEnvelope(plan:Plan,year:number,index:number,override:Record<string,number>):RetirementEnvelope|null;
+export function envelopeCosts(envelope:RetirementEnvelope,costs:{housing:number;outside:number;upfront:number;tax:number;payroll:number;health:number}):{spending:number;budget:BudgetRow};
+export function isRetirementExpense(expense:Expense):boolean;
