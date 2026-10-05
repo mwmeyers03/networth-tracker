@@ -31,7 +31,7 @@ const FREE_WEB_LLM_SIMPLE_URL =
   'https://text.pollinations.ai';
 const FREE_WEB_LLM_MODEL = process.env.REACT_APP_FREE_WEB_LLM_MODEL || 'openai';
 const ENABLE_FREE_WEB_LLM =
-  String(process.env.REACT_APP_ENABLE_FREE_WEB_LLM ?? 'true').toLowerCase() !== 'false';
+  String(process.env.REACT_APP_ENABLE_FREE_WEB_LLM ?? 'false').trim().toLowerCase() === 'true';
 const OLLAMA_KEEP_ALIVE = process.env.REACT_APP_OLLAMA_KEEP_ALIVE || '30m';
 const OLLAMA_TEMPERATURE = Number(process.env.REACT_APP_OLLAMA_TEMPERATURE || 0.15);
 const OLLAMA_NUM_CTX = Number(process.env.REACT_APP_OLLAMA_NUM_CTX || 2048);
