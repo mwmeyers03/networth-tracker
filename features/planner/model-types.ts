@@ -1,0 +1,4 @@
+// The UI consumes the headless domain contracts; it does not own calculation types.
+export type {Promotion,CareerBreak,ConversionLot,ProjectionPerson as Person,Expense,Assumption,RetirementBudget,Housing,Plan,Account,PeopleFlow,AccessBreakdown,BudgetRow,CoverageKind,CoverageMonths,HealthPerson,HealthConfig,HealthRow,ProjectionRow,ProjectionResult} from '../../packages/engine/runtime/projection/contracts.js';
+export type BandRow={year:number;p10:number;p25?:number;p50:number;p75?:number;p90:number;[key:string]:unknown};
+export type SimulationResult={successRate:number;withinBudgetSuccessRate:number;failureTypes:Record<string,number>;timelineBands:Record<string,BandRow[]>;bands:BandRow[];runs:number;mode:string;inflationMode:string;blockLength:number;seed:number;budgetOverrunRate:number;interval?:[number,number]|null;spendingCutRate:number;penaltyRate?:number;dataRange?:string;failures:Record<string,number>;[key:string]:unknown};
