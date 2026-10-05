@@ -1,0 +1,48 @@
+{
+  "retrievedDate": null,
+  "baseYear": 2026,
+  "freshness": "not-connected",
+  "demonstration": true,
+  "window": [],
+  "balances": {
+    "brokerage": 0,
+    "brokerageBasisEstimate": 0,
+    "roth": 0,
+    "traditional": 0,
+    "cash": 0
+  },
+  "checks": {
+    "brokerageHoldings": 0,
+    "brokerageDifference": 0,
+    "rothHoldings": 0,
+    "rothDifference": 0,
+    "manual401k": 0,
+    "taxBalance2026": 0,
+    "currentCash": 0,
+    "checkingAvailable": 0,
+    "manual401kDate": null,
+    "bankBalanceDate": null
+  },
+  "spending": {
+    "categories": {
+      "shopping": 0,
+      "dining_drinks": 0,
+      "travel": 0,
+      "entertainment": 0,
+      "services": 0,
+      "health_wellness": 0,
+      "transportation": 0,
+      "groceries": 0
+    },
+    "rent": 0,
+    "fees": 0,
+    "reviewedSubtotal": 0,
+    "possibleBNPL": 0,
+    "unassignedCredits": 0
+  },
+  "excluded": {},
+  "income": {
+    "salaryNetDeposits": 0,
+    "gigCategoryDeposits": 0
+  }
+}
